@@ -238,13 +238,55 @@ def api_goals_update(gid):
 @bp.route("/reminders", methods=["POST"])
 def api_reminders_create():
     from agent import store
+    from scheduler.jobs import schedule_reminder
     data = request.get_json(silent=True) or {}
     text = (data.get("text") or "").strip()
     due_at = (data.get("due_at") or "").strip()
     if not text or not due_at:
         return jsonify({"error": "text and due_at are required"}), 400
     rid = store.add_reminder(text=text, due_at=due_at, repeat=(data.get("repeat") or None))
+    _safe(lambda: schedule_reminder(rid, due_at), None)
     return jsonify({"id": rid})
+
+
+@bp.route("/reminders/<int:rid>", methods=["PATCH"])
+def api_reminders_update(rid):
+    from agent import store
+    from scheduler.jobs import cancel_reminder_job, schedule_reminder
+    data = request.get_json(silent=True) or {}
+    status = (data.get("status") or "").strip()
+    if status not in ("pending", "done", "cancelled"):
+        return jsonify({"error": "status must be pending, done, or cancelled"}), 400
+    store.set_reminder_status(rid, status)
+    if status in ("done", "cancelled"):
+        _safe(lambda: cancel_reminder_job(rid), None)
+    elif data.get("due_at"):
+        due_at = (data.get("due_at") or "").strip()
+        store.reschedule_reminder(rid, due_at)
+        _safe(lambda: schedule_reminder(rid, due_at), None)
+    return jsonify({"ok": True, "id": rid, "status": status})
+
+
+@bp.route("/nudges")
+def api_nudges():
+    from dashboard import nudges as nudge_mod
+    world_id = (request.args.get("world_id") or "").strip() or None
+    return jsonify({"nudges": _safe(lambda: nudge_mod.collect_nudges(world_id), [])})
+
+
+@bp.route("/crm/contacts/<int:cid>/followup", methods=["POST"])
+def api_contact_followup(cid):
+    from datetime import datetime, timedelta
+    from memory.sql_store import get_contact, update_contact
+    data = request.get_json(silent=True) or {}
+    contact = get_contact(cid)
+    if not contact:
+        return jsonify({"error": "contact not found"}), 404
+    days = int(data.get("days") or 3)
+    days = max(1, min(days, 90))
+    followup_date = (datetime.now() + timedelta(days=days)).isoformat()
+    update_contact(cid, next_followup_at=followup_date)
+    return jsonify({"ok": True, "id": cid, "next_followup_at": followup_date, "days": days})
 
 
 @bp.route("/crm/contacts", methods=["POST"])
@@ -275,7 +317,7 @@ def api_contacts_create():
 def api_contacts_update(cid):
     from memory.sql_store import update_contact
     data = request.get_json(silent=True) or {}
-    allowed = {"name", "company", "role", "email", "status", "priority", "notes", "linkedin_url"}
+    allowed = {"name", "company", "role", "email", "status", "priority", "notes", "linkedin_url", "next_followup_at"}
     payload = {k: v for k, v in data.items() if k in allowed}
     if not payload:
         return jsonify({"error": "no valid fields"}), 400
@@ -489,6 +531,7 @@ def api_chat_async():
         rag_mode=(data.get("rag_mode") or "auto").strip().lower() or "auto",
         specialist=specialist or "supervisor",
         session_id=(data.get("session_id") or "").strip() or None,
+        attachments=data.get("attachments") or [],
     )
     return jsonify({"job": job})
 

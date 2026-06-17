@@ -3213,8 +3213,219 @@ td {
 }
 
 .content--loading {
-  opacity: 0.72;
   pointer-events: none;
+}
+
+.content--loading #content {
+  opacity: 0.55;
+}
+
+.global-progress {
+  position: relative;
+  height: 3px;
+  background: rgba(255, 255, 255, 0.06);
+  overflow: hidden;
+  z-index: 20;
+}
+
+.global-progress__bar {
+  display: block;
+  height: 100%;
+  width: 0;
+  background: var(--color-accent, #da291c);
+  transition: width 0.25s ease-out;
+}
+
+.global-progress.is-indeterminate .global-progress__bar {
+  width: 35%;
+  animation: global-progress-slide 1.1s ease-in-out infinite;
+}
+
+@keyframes global-progress-slide {
+  0% { transform: translateX(-120%); }
+  100% { transform: translateX(320%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .global-progress.is-indeterminate .global-progress__bar {
+    animation: none;
+    width: 100%;
+    opacity: 0.5;
+  }
+}
+
+.skeleton {
+  display: block;
+  border-radius: 2px;
+  background: linear-gradient(90deg, rgba(255,255,255,0.04) 0%, rgba(255,255,255,0.1) 50%, rgba(255,255,255,0.04) 100%);
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.2s ease-in-out infinite;
+}
+
+@keyframes skeleton-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton { animation: none; background: rgba(255,255,255,0.06); }
+}
+
+.view-skeleton {
+  display: grid;
+  gap: var(--space-sm);
+  padding: var(--space-xs) 0;
+}
+
+.skeleton-card {
+  padding: var(--space-sm);
+  border: 1px solid var(--color-hairline);
+  background: rgba(255, 255, 255, 0.02);
+  display: grid;
+  gap: var(--space-xs);
+}
+
+.skeleton-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: var(--space-sm);
+}
+
+.up-next-panel {
+  display: grid;
+  gap: var(--space-xs);
+}
+
+.up-next-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: var(--space-xxs);
+}
+
+.up-next-item {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-sm);
+  padding: var(--space-xs) var(--space-sm);
+  border: 1px solid var(--color-hairline);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.up-next-item.is-urgent {
+  border-color: rgba(247, 84, 64, 0.35);
+}
+
+.up-next-item__body {
+  min-width: 0;
+}
+
+.up-next-item__title {
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.up-next-item__meta {
+  font-size: 0.8rem;
+  color: var(--color-muted);
+  margin-top: 2px;
+}
+
+.capability-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-xxs);
+  margin-top: var(--space-sm);
+}
+
+.capability-chip {
+  padding: var(--space-xxs) var(--space-xs);
+  border: 1px solid var(--color-hairline);
+  background: transparent;
+  color: var(--color-text);
+  font-size: 0.75rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.capability-chip:hover,
+.capability-chip:focus-visible {
+  border-color: var(--color-accent, #da291c);
+  color: var(--color-accent, #da291c);
+}
+
+.chat-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-xxs);
+  margin-bottom: var(--space-xs);
+}
+
+.chat-attachment-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xxs);
+  padding: 2px var(--space-xs);
+  border: 1px solid var(--color-hairline);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.78rem;
+}
+
+.chat-attachment-chip button {
+  border: none;
+  background: transparent;
+  color: var(--color-muted);
+  cursor: pointer;
+  padding: 0 2px;
+}
+
+.github-tree {
+  margin-top: var(--space-xs);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.8rem;
+}
+
+.github-tree details {
+  margin-left: var(--space-xs);
+}
+
+.github-tree summary {
+  cursor: pointer;
+  padding: 2px 0;
+  color: var(--color-muted);
+  list-style: none;
+}
+
+.github-tree summary::-webkit-details-marker { display: none; }
+
+.github-tree-file {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-xs);
+  padding: 2px 0 2px var(--space-sm);
+}
+
+.github-tree-file__actions {
+  display: flex;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.github-tree-file__actions .button-sm {
+  padding: 2px 6px;
+  font-size: 0.7rem;
+}
+
+.notif-item.is-clickable {
+  cursor: pointer;
+}
+
+.notif-item.is-clickable:hover {
+  background: rgba(255, 255, 255, 0.03);
 }
 
 .panel-loading {
