@@ -1,8 +1,9 @@
-/** Markdown + Mermaid rendering for Nawab OS chat, history, and file viewer. */
+/** Markdown + Mermaid rendering for Nawab OS chat, history, vault, and file viewer. */
 (function (global) {
   "use strict";
 
   let mermaidReady = false;
+  let markedReady = false;
 
   function escapeHtml(s) {
     return String(s ?? "")
@@ -12,6 +13,35 @@
       .replace(/"/g, "&quot;");
   }
 
+  function ensureMarked() {
+    if (!global.marked || markedReady) return !!global.marked;
+    try {
+      global.marked.setOptions({
+        gfm: true,
+        breaks: false,
+        headerIds: false,
+        mangle: false,
+      });
+      global.marked.use({
+        renderer: {
+          code({ text, lang, escaped }) {
+            const language = (lang || "").trim().toLowerCase();
+            const body = escaped ? text : escapeHtml(text);
+            if (language === "mermaid") {
+              return `<div class="mermaid">${body}</div>`;
+            }
+            const langClass = language ? ` class="language-${escapeHtml(language)}"` : "";
+            return `<pre class="md-pre"><code${langClass}>${body}</code></pre>`;
+          },
+        },
+      });
+      markedReady = true;
+    } catch (e) {
+      console.warn("[markdown] marked init failed", e);
+    }
+    return markedReady;
+  }
+
   function inlineFormat(s) {
     let out = escapeHtml(s);
     out = out.replace(/`([^`]+)`/g, "<code>$1</code>");
@@ -19,15 +49,15 @@
     out = out.replace(/\*([^*]+)\*/g, "<em>$1</em>");
     out = out.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_m, label, url) => {
       const u = String(url).trim();
-      if (/^(https?:|\/api\/|\/static\/)/i.test(u)) {
-        return `<a href="${escapeHtml(u)}" target="_blank" rel="noopener">${escapeHtml(label)}</a>`;
+      if (/^(https?:|\/api\/|\/static\/|#)/i.test(u)) {
+        return `<a href="${escapeHtml(u)}" target="_blank" rel="noopener noreferrer">${escapeHtml(label)}</a>`;
       }
       return escapeHtml(label);
     });
     return out;
   }
 
-  function renderMarkdown(text) {
+  function renderMarkdownFallback(text) {
     const src = String(text ?? "");
     if (!src.trim()) return "";
 
@@ -82,6 +112,13 @@
         continue;
       }
 
+      const bq = line.match(/^>\s?(.*)$/);
+      if (bq) {
+        flushList();
+        html.push(`<blockquote class="md-blockquote"><p class="md-p">${inlineFormat(bq[1])}</p></blockquote>`);
+        continue;
+      }
+
       const h = line.match(/^(#{1,6})\s+(.+)$/);
       if (h) {
         flushList();
@@ -121,6 +158,19 @@
     return html.filter(Boolean).join("\n");
   }
 
+  function renderMarkdown(text) {
+    const src = String(text ?? "");
+    if (!src.trim()) return "";
+    if (ensureMarked()) {
+      try {
+        return global.marked.parse(src);
+      } catch (e) {
+        console.warn("[markdown] marked parse failed, using fallback", e);
+      }
+    }
+    return renderMarkdownFallback(src);
+  }
+
   async function ensureMermaid() {
     if (!global.mermaid) return false;
     if (!mermaidReady) {
@@ -148,5 +198,12 @@
     }
   }
 
-  global.FOSMarkdown = { render: renderMarkdown, escapeHtml, enhance };
+  async function renderInto(el, text) {
+    if (!el) return;
+    el.innerHTML = renderMarkdown(text) || "<p class='muted'>Empty document</p>";
+    el.classList.add("msg-md", "md-content");
+    await enhance(el);
+  }
+
+  global.FOSMarkdown = { render: renderMarkdown, escapeHtml, enhance, renderInto };
 })(window);

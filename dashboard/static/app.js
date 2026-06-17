@@ -206,7 +206,6 @@ function renderDocuments() {
   </div>`;
 
   if (selected) {
-    const preview = window.FOSMarkdown?.render?.(draft) || esc(draft);
     editorHtml = `
       <div class="docs-editor__toolbar">
         <input type="text" class="text-input-on-dark docs-title-input" id="docs-title-input" value="${esc(selected.title || "Untitled")}" aria-label="Document title">
@@ -220,7 +219,7 @@ function renderDocuments() {
       <div class="docs-editor__body">
         ${editing
           ? `<textarea id="docs-source" class="docs-source text-input-on-dark" aria-label="Document source">${esc(draft)}</textarea>`
-          : `<div id="docs-preview" class="md-content docs-preview">${preview}</div>`}
+          : `<div id="docs-preview" class="md-content msg-md docs-preview"></div>`}
       </div>`;
   }
 
@@ -472,8 +471,7 @@ async function openVaultDocViewer(worldId, docId, title) {
     const content = res.content || "";
     $("#md-dialog-source").value = content;
     const prev = $("#md-dialog-preview");
-    prev.innerHTML = window.FOSMarkdown?.render?.(content) || esc(content);
-    window.FOSMarkdown?.enhance?.(prev);
+    await window.FOSMarkdown?.renderInto?.(prev, content);
   } catch (e) {
     $("#md-dialog-preview").innerHTML = `<p class="body-md" style="color:var(--color-warn)">${esc(e.message || "Could not load document")}</p>`;
   }
@@ -488,8 +486,7 @@ async function saveMdEditor() {
       timeoutMs: 15000,
     });
     const prev = $("#md-dialog-preview");
-    prev.innerHTML = window.FOSMarkdown?.render?.(content) || esc(content);
-    window.FOSMarkdown?.enhance?.(prev);
+    await window.FOSMarkdown?.renderInto?.(prev, content);
     mdEditorState.editMode = false;
     $("#md-dialog-source").hidden = true;
     $("#md-dialog-preview").hidden = false;
@@ -504,8 +501,7 @@ async function saveMdEditor() {
     timeoutMs: 15000,
   });
   const prev = $("#md-dialog-preview");
-  prev.innerHTML = window.FOSMarkdown?.render?.(content) || esc(content);
-  window.FOSMarkdown?.enhance?.(prev);
+  await window.FOSMarkdown?.renderInto?.(prev, content);
   mdEditorState.editMode = false;
   $("#md-dialog-source").hidden = true;
   $("#md-dialog-preview").hidden = false;
@@ -518,7 +514,7 @@ function initMdEditorDialog() {
     $("#md-editor-dialog")?.close();
     resetMdEditorDialog();
   });
-  $("#md-dialog-mode")?.addEventListener("click", () => {
+  $("#md-dialog-mode")?.addEventListener("click", async () => {
     if (mdEditorState.mode !== "vault" && !mdEditorState.artifactId) return;
     mdEditorState.editMode = !mdEditorState.editMode;
     const src = $("#md-dialog-source");
@@ -530,8 +526,7 @@ function initMdEditorDialog() {
       $("#md-dialog-mode").textContent = "Preview";
     } else {
       const content = src?.value ?? "";
-      prev.innerHTML = window.FOSMarkdown?.render?.(content) || esc(content);
-      window.FOSMarkdown?.enhance?.(prev);
+      await window.FOSMarkdown?.renderInto?.(prev, content);
       src.hidden = true;
       prev.hidden = false;
       $("#md-dialog-save").hidden = true;
@@ -3372,6 +3367,10 @@ function afterRender(opts = {}) {
   }
   FOSMotion?.ensureContentVisible?.();
   window.FOSMarkdown?.enhance?.(document.getElementById("content"));
+  if (currentView === "documents" && !documentsEditMode) {
+    const prev = $("#docs-preview");
+    if (prev) void window.FOSMarkdown?.renderInto?.(prev, state._documentDraft ?? "");
+  }
 }
 
 function animateLatestChatMessage() {
