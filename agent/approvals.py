@@ -25,6 +25,8 @@ def _missing_required(tool_name: str, args: dict) -> list:
 def _summarize(tool_name: str, args: dict) -> str:
     if tool_name == "send_email":
         return f"Send email to {args.get('to_address')} — subject: \"{args.get('subject','')}\""
+    if tool_name == "send_whatsapp":
+        return f"Send WhatsApp to {args.get('to_e164') or args.get('to')}: \"{(args.get('body') or '')[:120]}\""
     if tool_name == "x_post":
         return f"Post to X: \"{(args.get('text') or '')[:120]}\""
     if tool_name == "calendar_delete_event":

@@ -635,6 +635,7 @@ let historyTab = localStorage.getItem("fos_history_tab") || "conversations";
 if (historyTab === "artifacts") historyTab = "documents";
 let documentsEditMode = false;
 let livePollTimer = null;
+let whatsappPollTimer = null;
 let memoryGraphTab = "graph";
 let worldGraphTab = "hierarchy";
 let lastLiveActive = false;
@@ -2754,9 +2755,14 @@ function renderCrm() {
     <td>${esc(c.name)}</td><td>${esc(c.company || "—")}</td><td>${esc(c.role || "—")}</td>
     <td><select class="text-input-on-dark crm-status-select" data-crm-status="${c.id}" aria-label="Status for ${esc(c.name)}">${statusOpts(c.status || "prospect")}</select></td>
     <td class="muted">${esc(c.email || "")}</td>
+    <td class="muted">${esc(c.phone || "")}</td>
+    <td><label class="human-field--checkbox" style="margin:0">
+      <input type="checkbox" data-crm-whatsapp="${c.id}" ${c.whatsapp_enabled ? "checked" : ""} ${c.phone ? "" : "disabled"} aria-label="Allow WhatsApp for ${esc(c.name)}">
+    </label></td>
     <td>
       <button type="button" class="button-outline-on-dark button-sm" data-crm-followup="${c.id}" data-followup-days="3">3d</button>
       <button type="button" class="button-outline-on-dark button-sm" data-crm-followup="${c.id}" data-followup-days="7">7d</button>
+      ${c.whatsapp_enabled ? `<button type="button" class="button-tertiary-text button-sm" data-crm-wa-thread="${c.id}">WA</button>` : ""}
     </td></tr>`).join("");
 
   const fu = followups.map(c => `<li class="crm-followup-row">
@@ -2791,8 +2797,16 @@ function renderCrm() {
         <div class="human-form__row">
           <label class="human-field"><span class="caption-uppercase">Status</span>
             <select class="text-input-on-dark" name="status">${statusOpts("prospect")}</select></label>
+          <label class="human-field"><span class="caption-uppercase">Phone</span>
+            <input class="text-input-on-dark" name="phone" placeholder="+44 7911 123456"></label>
+        </div>
+        <div class="human-form__row">
           <label class="human-field"><span class="caption-uppercase">LinkedIn</span>
             <input class="text-input-on-dark" name="linkedin_url" placeholder="https://linkedin.com/in/…"></label>
+          <label class="human-field human-field--checkbox" style="align-self:end">
+            <input type="checkbox" name="whatsapp_enabled" value="1">
+            <span>Allow WhatsApp (read/write this contact only)</span>
+          </label>
         </div>
         <label class="human-field"><span class="caption-uppercase">Notes</span>
           <textarea class="text-input-on-dark" name="notes" rows="2" placeholder="Context for follow-ups"></textarea></label>
@@ -2806,8 +2820,15 @@ function renderCrm() {
     <section class="driver-card span-8"><p class="caption-uppercase">Follow-ups due</p><ul class="list-plain" style="margin-top:var(--space-sm)">${fu}</ul></section>
     <section class="band-light span-12">
       <p class="caption-uppercase" style="color:var(--color-muted)">Contacts (${contacts.length})</p>
-      <div class="table-wrap"><table><thead><tr><th>Name</th><th>Company</th><th>Role</th><th>Status</th><th>Email</th><th>Follow up</th></tr></thead>
-      <tbody>${rows || '<tr><td colspan="6" class="muted">No contacts yet — use Add contact above.</td></tr>'}</tbody></table></div>
+      <div class="table-wrap"><table><thead><tr><th>Name</th><th>Company</th><th>Role</th><th>Status</th><th>Email</th><th>Phone</th><th>WA</th><th>Follow up</th></tr></thead>
+      <tbody>${rows || '<tr><td colspan="8" class="muted">No contacts yet — use Add contact above.</td></tr>'}</tbody></table></div>
+      ${state._crmWaThread?.length ? `<div class="driver-card" style="margin-top:var(--space-md)">
+        <p class="caption-uppercase">WhatsApp thread</p>
+        <ul class="list-plain" style="margin-top:var(--space-sm)">${state._crmWaThread.map(m =>
+          `<li><span class="muted">${esc((m.sent_at || "").slice(0, 16).replace("T", " "))}</span> `
+          + `<strong>${esc(m.direction || "")}</strong>: ${esc((m.body || "").slice(0, 200))}</li>`
+        ).join("")}</ul>
+      </div>` : ""}
     </section>
   </div>`;
 }
@@ -3121,7 +3142,18 @@ function integrationCard(name, connected, detail) {
 function renderSettings() {
   const c = state.config || {};
   const integ = c.integrations || {};
+  const wa = state._whatsapp || {};
   const level = (c.autonomy_level || "balanced").toLowerCase();
+  const waStatus = !c.whatsapp_enabled
+    ? "Disabled in .env"
+    : wa.connected
+      ? `Connected${wa.linked_phone ? ` (${esc(wa.linked_phone)})` : ""}`
+      : wa.qr_pending
+        ? "Scan QR below"
+        : "Bridge not connected";
+  const waQr = wa.qr_data_url
+    ? `<img src="${wa.qr_data_url}" alt="WhatsApp QR code" width="280" height="280" style="margin-top:var(--space-sm);border-radius:8px">`
+    : "";
   const pauseBtn = c.agent_paused
     ? `<button type="button" class="button-primary" id="toggle-pause">Resume agent</button>`
     : `<button type="button" class="button-outline-on-dark" id="toggle-pause">Pause agent</button>`;
@@ -3183,8 +3215,20 @@ function renderSettings() {
         ${integrationCard("Serper", integ.serper, "Web search")}
         ${integrationCard("Tavily", integ.tavily, "Research search")}
         ${integrationCard("GitHub", integ.github || integ.github_oauth, integ.github ? "Connected — link repos in Worlds" : (integ.github_oauth ? "OAuth ready — connect in Worlds" : "Set GITHUB_CLIENT_ID in .env"))}
+        ${integrationCard("WhatsApp", integ.whatsapp && wa.connected, "Allowlisted CRM contacts only; every send needs approval")}
       </div>
     </section>
+    ${c.whatsapp_enabled ? `<section class="driver-card span-12 human-panel" id="whatsapp-settings-panel">
+      <p class="section-eyebrow">WhatsApp</p>
+      <h3 class="title-sm">Linked device</h3>
+      <p class="body-md muted">Personal WhatsApp via Baileys (unofficial). Only contacts you allow in CRM are stored or messaged. Outbound always requires your approval.</p>
+      <dl class="settings-kv" style="margin-top:var(--space-sm)">
+        <div class="settings-kv__row"><dt>Status</dt><dd>${waStatus}</dd></div>
+        <div class="settings-kv__row"><dt>Allowlisted</dt><dd>${wa.allowlist_count ?? wa.allowlist_size ?? "—"} contacts</dd></div>
+      </dl>
+      ${waQr}
+      <p class="caption muted" style="margin-top:var(--space-xs)">Open WhatsApp → Linked devices → Link a device. QR refreshes every few seconds while pending.</p>
+    </section>` : ""}
   </div>`;
 }
 
@@ -3192,6 +3236,13 @@ function renderSettings() {
 
 async function loadViewData(view) {
   if (view === "crm") state._crm = await api("/crm/contacts");
+  if (view === "settings") {
+    state._whatsapp = await api("/whatsapp/status").catch(() => ({}));
+    if (state._whatsapp.qr_pending) {
+      const qr = await api("/whatsapp/qr").catch(() => ({}));
+      state._whatsapp.qr_data_url = qr.qr_data_url || null;
+    }
+  }
   if (view === "goals") state._goals = await api("/goals");
   if (view === "tools") state._tools = await api("/tools");
   if (view === "agents") {
@@ -3349,6 +3400,33 @@ function goView(view) {
   });
 }
 
+function stopWhatsappPoll() {
+  if (whatsappPollTimer) { clearInterval(whatsappPollTimer); whatsappPollTimer = null; }
+}
+
+async function pollWhatsappSettings() {
+  if (currentView !== "settings") { stopWhatsappPoll(); return; }
+  try {
+    const status = await api("/whatsapp/status");
+    state._whatsapp = { ...(state._whatsapp || {}), ...status };
+    if (status.qr_pending) {
+      const qr = await api("/whatsapp/qr").catch(() => ({}));
+      state._whatsapp.qr_data_url = qr.qr_data_url || null;
+    } else {
+      state._whatsapp.qr_data_url = null;
+    }
+    if (currentView === "settings") render({ graphs: false });
+  } catch (_) { /* bridge may be offline */ }
+}
+
+function startWhatsappPollIfNeeded() {
+  stopWhatsappPoll();
+  const c = state.config || {};
+  if (currentView !== "settings" || !c.whatsapp_enabled) return;
+  void pollWhatsappSettings();
+  whatsappPollTimer = setInterval(pollWhatsappSettings, 5000);
+}
+
 function afterRender(opts = {}) {
   try {
     if (currentView === "dashboard") drawDashboardCharts();
@@ -3371,6 +3449,7 @@ function afterRender(opts = {}) {
     const prev = $("#docs-preview");
     if (prev) void window.FOSMarkdown?.renderInto?.(prev, state._documentDraft ?? "");
   }
+  startWhatsappPollIfNeeded();
 }
 
 function animateLatestChatMessage() {
@@ -3444,7 +3523,7 @@ function initContentDelegation() {
       + "[data-chat-session],[data-cancel-job],[data-cancel-active-job],[data-md-artifact],[data-open-document],"
       + "[data-select-document],[data-docs-action],[data-tag-vault-doc],[data-nudge-index],"
       + "[data-remove-attachment],[data-open-vault-picker],[data-pick-vault-doc],"
-      + "[data-crm-followup],[data-reminder-done],[data-reminder-cancel],[data-notif-action],"
+      + "[data-crm-followup],[data-crm-wa-thread],[data-reminder-done],[data-reminder-cancel],[data-notif-action],"
       + "#chat-send,#chat-clear,#memory-search,#toggle-pause,#agents-vault-search,"
       + "#delegate-selected-btn,#btn-logout,#btn-infra-refresh"
     );
@@ -3545,6 +3624,7 @@ function initContentDelegation() {
       return;
     }
     if (el.dataset.crmFollowup) return scheduleCrmFollowup(el.dataset.crmFollowup, el.dataset.followupDays);
+    if (el.dataset.crmWaThread) return loadCrmWaThread(el.dataset.crmWaThread);
     if (el.dataset.reminderDone) return updateReminderStatus(el.dataset.reminderDone, "done");
     if (el.dataset.reminderCancel) return updateReminderStatus(el.dataset.reminderCancel, "cancelled");
     if (el.dataset.notifAction) return openNotificationAction(el.dataset.notifAction, el.dataset.notifId);
@@ -3629,6 +3709,9 @@ function initContentDelegation() {
     if (e.target.matches("[data-crm-status]")) {
       updateCrmStatus(e.target.dataset.crmStatus, e.target.value);
     }
+    if (e.target.matches("[data-crm-whatsapp]")) {
+      updateCrmWhatsapp(e.target.dataset.crmWhatsapp, e.target.checked);
+    }
   });
 
   root.addEventListener("keydown", e => {
@@ -3708,6 +3791,8 @@ async function submitCrmContact(form) {
         email: (fd.get("email") || "").toString().trim(),
         status: (fd.get("status") || "prospect").toString(),
         linkedin_url: (fd.get("linkedin_url") || "").toString().trim(),
+        phone: (fd.get("phone") || "").toString().trim(),
+        whatsapp_enabled: fd.get("whatsapp_enabled") === "1",
         notes: (fd.get("notes") || "").toString().trim(),
       }),
     });
@@ -3728,6 +3813,28 @@ async function updateCrmStatus(cid, status) {
     });
     state._crm = await api("/crm/contacts");
     await refresh();
+    render();
+  } catch (e) { alert(e.message); }
+}
+
+async function updateCrmWhatsapp(cid, enabled) {
+  if (!cid) return;
+  try {
+    await api(`/crm/contacts/${encodeURIComponent(cid)}`, {
+      method: "PATCH",
+      body: JSON.stringify({ whatsapp_enabled: !!enabled }),
+    });
+    state._crm = await api("/crm/contacts");
+    await refresh();
+    render();
+  } catch (e) { alert(e.message); }
+}
+
+async function loadCrmWaThread(cid) {
+  if (!cid) return;
+  try {
+    const res = await api(`/whatsapp/messages?contact_id=${encodeURIComponent(cid)}`);
+    state._crmWaThread = res.messages || [];
     render();
   } catch (e) { alert(e.message); }
 }

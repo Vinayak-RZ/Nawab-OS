@@ -18,11 +18,17 @@ _WRITE_TOOLS = {
     "calendar_create_event", "set_reminder", "add_goal", "graph_link",
 }
 
+# WhatsApp outbound is always approval-gated — no autonomy bypass.
+_WHATSAPP_TOOLS = {"send_whatsapp"}
+
 
 def decide(tool, args: dict) -> str:
     if tool is None:
         return "allow"
     level = (config.autonomy_level or "balanced").lower()
+
+    if getattr(tool, "name", None) in _WHATSAPP_TOOLS:
+        return "approve"
 
     if getattr(tool, "requires_approval", False):
         if level == "autonomous" or config.auto_approve:

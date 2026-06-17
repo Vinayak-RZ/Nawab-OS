@@ -268,6 +268,34 @@ async def job_check_inbox():
         logger.error(f"Reply loop failed: {e}")
 
 
+async def job_check_whatsapp():
+    if _paused():
+        return
+    from config import config
+    if not config.whatsapp_enabled:
+        return
+    logger.info("[Scheduler] WhatsApp reply loop")
+    try:
+        from agent import whatsapp_reply_loop
+        res = await whatsapp_reply_loop.process_whatsapp_replies(notify=True)
+        if res.get("processed"):
+            logger.info(f"[Scheduler] WhatsApp loop handled {res['processed']} new message(s).")
+    except Exception as e:
+        logger.error(f"WhatsApp loop failed: {e}")
+
+
+async def job_whatsapp_allowlist_sync():
+    from config import config
+    if not config.whatsapp_enabled:
+        return
+    try:
+        from integrations import whatsapp as wa
+        if wa.is_configured():
+            wa.sync_allowlist_to_bridge()
+    except Exception as e:
+        logger.error(f"WhatsApp allowlist sync failed: {e}")
+
+
 async def job_consolidate_memory():
     logger.info("[Scheduler] Nightly memory consolidation")
     try:
@@ -330,6 +358,8 @@ def start_scheduler(app) -> AsyncIOScheduler:
     _scheduler.add_job(job_backup, CronTrigger(hour=2, minute=0), id="backup")
     _scheduler.add_job(job_check_monitors, CronTrigger(hour="9,15,20", minute=30), id="check_monitors")
     _scheduler.add_job(job_check_inbox, CronTrigger(hour="9-21", minute=15), id="check_inbox")
+    _scheduler.add_job(job_check_whatsapp, CronTrigger(minute="*/1"), id="check_whatsapp")
+    _scheduler.add_job(job_whatsapp_allowlist_sync, CronTrigger(minute="*/5"), id="whatsapp_allowlist")
 
     hours = max(1, int(getattr(config, "heartbeat_hours", 4) or 4))
     _scheduler.add_job(

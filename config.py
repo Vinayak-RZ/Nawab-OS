@@ -63,6 +63,11 @@ class Config:
     behind_proxy: bool
     dashboard_pin: str
     flask_secret_key: str
+    # WhatsApp (optional — Baileys bridge)
+    whatsapp_enabled: bool
+    whatsapp_bridge_url: str
+    whatsapp_bridge_secret: str
+    whatsapp_always_require_approval: bool
 
 def _truthy(val: str, default: bool = False) -> bool:
     if val is None or val == "":
@@ -157,6 +162,12 @@ def load_config() -> Config:
             f"{os.getenv('PUBLIC_BASE_URL', '').strip().rstrip('/')}/api/github/callback"
             if os.getenv("PUBLIC_BASE_URL", "").strip()
             else f"http://127.0.0.1:{int(os.getenv('DASHBOARD_PORT', '8787') or '8787')}/api/github/callback"
+        ),
+        whatsapp_enabled=_truthy(os.getenv("WHATSAPP_ENABLED"), default=False),
+        whatsapp_bridge_url=os.getenv("WHATSAPP_BRIDGE_URL", "http://127.0.0.1:3100").strip().rstrip("/"),
+        whatsapp_bridge_secret=os.getenv("WHATSAPP_BRIDGE_SECRET", "").strip(),
+        whatsapp_always_require_approval=_truthy(
+            os.getenv("WHATSAPP_ALWAYS_REQUIRE_APPROVAL"), default=True
         ),
     )
 

@@ -72,7 +72,9 @@ def _public_config():
             "tavily": bool(config.tavily_api_key),
             "github": _safe(lambda: __import__("integrations.github_client", fromlist=["is_connected"]).is_connected(), False),
             "github_oauth": bool(config.github_client_id and config.github_client_secret),
+            "whatsapp": _safe(lambda: __import__("integrations.whatsapp", fromlist=["is_configured"]).is_configured(), False),
         },
+        "whatsapp_enabled": config.whatsapp_enabled,
     }
 
 
@@ -292,6 +294,7 @@ def api_contact_followup(cid):
 @bp.route("/crm/contacts", methods=["POST"])
 def api_contacts_create():
     from memory.sql_store import add_contact
+    from integrations import whatsapp as wa
     data = request.get_json(silent=True) or {}
     name = (data.get("name") or "").strip()
     if not name:
@@ -300,28 +303,41 @@ def api_contacts_create():
         priority = int(data.get("priority") or 3)
     except (TypeError, ValueError):
         priority = 3
+    wa_on = bool(data.get("whatsapp_enabled"))
     cid = add_contact(
         name=name,
         company=(data.get("company") or "").strip() or None,
         role=(data.get("role") or "").strip() or None,
         email=(data.get("email") or "").strip() or None,
         linkedin_url=(data.get("linkedin_url") or "").strip() or None,
+        phone=(data.get("phone") or "").strip() or None,
         status=(data.get("status") or "prospect").strip(),
         priority=max(1, min(5, priority)),
         notes=(data.get("notes") or "").strip() or None,
+        whatsapp_enabled=1 if wa_on else 0,
     )
+    _safe(wa.sync_allowlist_to_bridge, None)
     return jsonify({"id": cid})
 
 
 @bp.route("/crm/contacts/<int:cid>", methods=["PATCH"])
 def api_contacts_update(cid):
-    from memory.sql_store import update_contact
+    from memory.sql_store import update_contact, get_contact
+    from integrations import whatsapp as wa
     data = request.get_json(silent=True) or {}
-    allowed = {"name", "company", "role", "email", "status", "priority", "notes", "linkedin_url", "next_followup_at"}
+    allowed = {
+        "name", "company", "role", "email", "status", "priority", "notes",
+        "linkedin_url", "next_followup_at", "phone", "whatsapp_enabled",
+    }
     payload = {k: v for k, v in data.items() if k in allowed}
     if not payload:
         return jsonify({"error": "no valid fields"}), 400
+    if not get_contact(cid):
+        return jsonify({"error": "contact not found"}), 404
+    if "whatsapp_enabled" in payload:
+        payload["whatsapp_enabled"] = 1 if payload["whatsapp_enabled"] else 0
     update_contact(cid, **payload)
+    _safe(wa.sync_allowlist_to_bridge, None)
     return jsonify({"ok": True, "id": cid})
 
 
@@ -1319,3 +1335,64 @@ def api_world_repos_sync(world_id, link_id):
         {"error": "sync job failed", "status": "failed"},
     )
     return jsonify({"job": job})
+
+
+# ── WhatsApp (Baileys bridge) ─────────────────────────────────────────────────
+
+@bp.route("/whatsapp/status")
+def api_whatsapp_status():
+    from integrations import whatsapp as wa
+    if not wa.is_configured():
+        return jsonify({"configured": False, "connected": False, "qr_pending": False})
+    status = _safe(wa.get_status, {})
+    status["configured"] = True
+    return jsonify(status)
+
+
+@bp.route("/whatsapp/qr")
+def api_whatsapp_qr():
+    from integrations import whatsapp as wa
+    if not wa.is_configured():
+        return jsonify({"error": "WhatsApp not configured"}), 400
+    return jsonify(_safe(wa.get_qr, {}))
+
+
+@bp.route("/whatsapp/messages")
+def api_whatsapp_messages():
+    from integrations import whatsapp as wa
+    from memory.sql_store import get_contact, get_outreach_for_contact
+    cid = request.args.get("contact_id", type=int)
+    if not cid:
+        return jsonify({"error": "contact_id required"}), 400
+    contact = get_contact(cid)
+    if not contact or not contact.get("whatsapp_enabled"):
+        return jsonify({"error": "contact not allowlisted for WhatsApp"}), 403
+    return jsonify({
+        "messages": _safe(lambda: get_outreach_for_contact(cid, channel="whatsapp"), []),
+    })
+
+
+@bp.route("/whatsapp/send", methods=["POST"])
+def api_whatsapp_send():
+    """Manual send from dashboard — counts as user-approved."""
+    from integrations import whatsapp as wa
+    from memory.sql_store import log_outreach, match_contact_by_phone
+    from integrations.phone import normalize_phone
+    if not wa.is_configured():
+        return jsonify({"error": "WhatsApp not configured"}), 400
+    data = request.get_json(silent=True) or {}
+    to = (data.get("to_e164") or data.get("to") or "").strip()
+    body = (data.get("body") or "").strip()
+    if not to or not body:
+        return jsonify({"error": "to and body are required"}), 400
+    e164 = wa.resolve_recipient(to) or normalize_phone(to)
+    if not e164 or not wa.is_allowlisted(e164):
+        return jsonify({"error": "recipient not on WhatsApp allowlist"}), 403
+    token = wa.mint_send_token(e164, body)
+    result = wa.send_message(e164, body, approval_token=token)
+    if result.get("error") or result.get("success") is False:
+        return jsonify(result), 502
+    contact = match_contact_by_phone(e164)
+    if contact:
+        _safe(lambda: log_outreach(contact["id"], "whatsapp", "outbound", body=body[:2000]), None)
+    return jsonify(result)

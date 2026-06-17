@@ -14,6 +14,7 @@ from agent.tools import (  # noqa: F401
     goal_tools,
     reminder_tools,
     outreach_tools,
+    whatsapp_tools,
     calendar_tools,
     social_tools,
     evolution_tools,

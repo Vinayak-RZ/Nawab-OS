@@ -83,23 +83,55 @@ def init_db():
     );
     """)
     conn.commit()
+    _migrate_contacts(conn)
     conn.close()
+
+
+def _migrate_contacts(conn=None):
+    own = conn is None
+    if own:
+        conn = get_conn()
+    for stmt in (
+        "ALTER TABLE contacts ADD COLUMN whatsapp_enabled INTEGER DEFAULT 0",
+    ):
+        try:
+            conn.execute(stmt)
+        except Exception:
+            pass
+    if own:
+        conn.commit()
+        conn.close()
+
 
 # ── CONTACTS ─────────────────────────────────────────────────────────────────
 
 def add_contact(name, company=None, role=None, email=None, linkedin_url=None,
-                phone=None, source=None, status="prospect", priority=3, notes=None) -> int:
+                phone=None, source=None, status="prospect", priority=3, notes=None,
+                whatsapp_enabled: int = 0) -> int:
+    from integrations.phone import normalize_phone
+    phone = normalize_phone(phone) if phone else None
+    wa = 1 if whatsapp_enabled and phone else 0
     conn = get_conn()
     c = conn.cursor()
-    c.execute("""INSERT INTO contacts (name, company, role, email, linkedin_url, phone, source, status, priority, notes)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-              (name, company, role, email, linkedin_url, phone, source, status, priority, notes))
+    c.execute("""INSERT INTO contacts (name, company, role, email, linkedin_url, phone, source,
+                 status, priority, notes, whatsapp_enabled)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+              (name, company, role, email, linkedin_url, phone, source, status, priority, notes, wa))
     conn.commit()
     contact_id = c.lastrowid
     conn.close()
     return contact_id
 
 def update_contact(contact_id: int, **kwargs):
+    if "phone" in kwargs and kwargs["phone"]:
+        from integrations.phone import normalize_phone
+        kwargs["phone"] = normalize_phone(kwargs["phone"])
+    if "whatsapp_enabled" in kwargs:
+        kwargs["whatsapp_enabled"] = 1 if kwargs["whatsapp_enabled"] else 0
+        if kwargs["whatsapp_enabled"]:
+            row = get_contact(contact_id)
+            if not row or not row.get("phone"):
+                kwargs["whatsapp_enabled"] = 0
     kwargs["updated_at"] = datetime.now().isoformat()
     conn = get_conn()
     sets = ", ".join(f"{k} = ?" for k in kwargs)
@@ -142,6 +174,44 @@ def get_pipeline_summary() -> dict:
 def get_all_contacts() -> list:
     conn = get_conn()
     rows = conn.execute("SELECT * FROM contacts ORDER BY updated_at DESC").fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def get_whatsapp_allowlist() -> list:
+    """CRM contacts explicitly allowed for WhatsApp read/write."""
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT * FROM contacts WHERE whatsapp_enabled = 1 AND phone IS NOT NULL AND phone != ''"
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def match_contact_by_phone(e164: str) -> Optional[dict]:
+    from integrations.phone import normalize_phone, phones_match
+    target = normalize_phone(e164)
+    if not target:
+        return None
+    for c in get_whatsapp_allowlist():
+        if phones_match(c.get("phone") or "", target):
+            return c
+    return None
+
+
+def get_outreach_for_contact(contact_id: int, channel: str = None, limit: int = 50) -> list:
+    conn = get_conn()
+    if channel:
+        rows = conn.execute(
+            """SELECT * FROM outreach_log WHERE contact_id = ? AND channel = ?
+               ORDER BY sent_at DESC LIMIT ?""",
+            (contact_id, channel, limit),
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            "SELECT * FROM outreach_log WHERE contact_id = ? ORDER BY sent_at DESC LIMIT ?",
+            (contact_id, limit),
+        ).fetchall()
     conn.close()
     return [dict(r) for r in rows]
 

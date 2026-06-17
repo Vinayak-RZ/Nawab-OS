@@ -1,0 +1,20 @@
+[Unit]
+Description=Nawab OS WhatsApp Baileys bridge
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=founder
+Group=founder
+WorkingDirectory=/opt/founder-os/services/whatsapp-bridge
+EnvironmentFile=/etc/founder-os/env
+Environment=WHATSAPP_SESSION_DIR=/var/lib/founder-os/data/whatsapp-session
+Environment=WHATSAPP_BRIDGE_PORT=3100
+Environment=WHATSAPP_BRIDGE_HOST=127.0.0.1
+ExecStart=/usr/bin/npm start
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

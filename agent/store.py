@@ -133,6 +133,11 @@ def init_agent_db():
             msg_key TEXT PRIMARY KEY,          -- Message-ID (or synthetic key)
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
+
+        CREATE TABLE IF NOT EXISTS seen_whatsapp (
+            msg_key TEXT PRIMARY KEY,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
         """
     )
     # Migrate older usage_daily rows that predate token/cost columns.
@@ -546,6 +551,26 @@ def mark_email_seen(msg_key: str):
         return
     conn = get_conn()
     conn.execute("INSERT OR IGNORE INTO seen_emails (msg_key) VALUES (?)", (msg_key,))
+    conn.commit()
+    conn.close()
+
+
+# ── SEEN WHATSAPP (reply-loop dedupe) ─────────────────────────────────────────
+
+def whatsapp_seen(msg_key: str) -> bool:
+    if not msg_key:
+        return False
+    conn = get_conn()
+    row = conn.execute("SELECT 1 FROM seen_whatsapp WHERE msg_key = ?", (msg_key,)).fetchone()
+    conn.close()
+    return row is not None
+
+
+def mark_whatsapp_seen(msg_key: str):
+    if not msg_key:
+        return
+    conn = get_conn()
+    conn.execute("INSERT OR IGNORE INTO seen_whatsapp (msg_key) VALUES (?)", (msg_key,))
     conn.commit()
     conn.close()
 
