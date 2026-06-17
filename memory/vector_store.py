@@ -228,6 +228,19 @@ def delete(collection_name: str, doc_id: str):
     get_collection(collection_name).delete(ids=[doc_id])
 
 
+def collections_overview_light() -> list:
+    """Counts only — no sample fetch (fast path for memory graph UI)."""
+    out = []
+    for name in COLLECTIONS:
+        entry = {"name": name, "count": 0, "samples": []}
+        try:
+            entry["count"] = get_collection(name).count()
+        except Exception as e:
+            logger.debug(f"[vector_store] overview light {name}: {e}")
+        out.append(entry)
+    return out
+
+
 def collections_overview(samples_per: int = 5) -> list:
     """Counts and recent samples per vector collection for the UI."""
     out = []

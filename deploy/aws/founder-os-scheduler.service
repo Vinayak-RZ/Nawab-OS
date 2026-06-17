@@ -1,6 +1,6 @@
 [Unit]
-Description=Founder OS (Gunicorn web UI)
-After=network-online.target
+Description=Founder OS background scheduler (heartbeats, backups, reminders)
+After=network-online.target founder-os.service
 Wants=network-online.target
 
 [Service]
@@ -10,10 +10,9 @@ Group=founder
 WorkingDirectory=/opt/founder-os
 EnvironmentFile=/etc/founder-os/env
 Environment=PYTHONUNBUFFERED=1
-ExecStart=/opt/founder-os/.venv/bin/python /opt/founder-os/run_production.py
+ExecStart=/opt/founder-os/.venv/bin/python -m scheduler.standalone
 Restart=on-failure
 RestartSec=5
-# Hardening (adjust if you add integrations that need more paths)
 NoNewPrivileges=true
 PrivateTmp=true
 

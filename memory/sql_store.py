@@ -1,5 +1,6 @@
 import sqlite3
 import os
+import threading
 from datetime import datetime, timedelta
 from typing import Optional
 
@@ -8,12 +9,18 @@ from typing import Optional
 DB_PATH = os.getenv("FOUNDER_OS_DB", "./data/founder_os.db")
 os.makedirs(os.path.dirname(DB_PATH) or ".", exist_ok=True)
 
+_local = threading.local()
+
+
 def get_conn():
-    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA synchronous=NORMAL")
-    conn.execute("PRAGMA busy_timeout=5000")
+    conn = getattr(_local, "conn", None)
+    if conn is None:
+        conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA synchronous=NORMAL")
+        conn.execute("PRAGMA busy_timeout=5000")
+        _local.conn = conn
     return conn
 
 def init_db():

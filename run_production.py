@@ -1,4 +1,4 @@
-"""Production entrypoint — scheduler + Gunicorn (use on EC2 behind nginx)."""
+"""Production entrypoint — Gunicorn only (scheduler runs as separate systemd unit)."""
 from __future__ import annotations
 
 import os
@@ -11,11 +11,6 @@ def main() -> None:
 
     ensure_data_dirs()
     run_startup_checks()
-
-    # Background scheduler (heartbeats, backups, reminders)
-    from main import _start_scheduler_async
-
-    _start_scheduler_async()
 
     host = os.getenv("WEB_HOST", "127.0.0.1")
     port = os.getenv("DASHBOARD_PORT", "8787")

@@ -125,7 +125,8 @@ def collect_summary() -> dict:
 
 @bp.route("/summary")
 def api_summary():
-    return jsonify(collect_summary())
+    from dashboard import cache
+    return jsonify(cache.get("api:summary", 10.0, collect_summary))
 
 
 @bp.route("/chat", methods=["POST"])
@@ -723,8 +724,7 @@ def api_delegate():
     return jsonify({"reply": reply, "result": reply, "session_id": session_id, "run_id": run_id})
 
 
-@bp.route("/world")
-def api_world():
+def _build_world_payload() -> dict:
     from memory import world_model
     from agent import about, registry, store
     from collections import Counter
@@ -737,14 +737,20 @@ def api_world():
         lambda: graph_viz.build_world_graph(snap, store.list_goals("active"), tree),
         {},
     )
-    return jsonify({
+    return {
         "snapshot": snap,
         "worlds": tree,
         "tools_by_category": dict(sorted(cats.items(), key=lambda kv: -kv[1])),
         "total_tools": len(registry.all_tools()),
         "about": _safe(about.describe, {}),
         "graph": graph,
-    })
+    }
+
+
+@bp.route("/world")
+def api_world():
+    from dashboard import cache
+    return jsonify(cache.get("api:world", 30.0, _build_world_payload))
 
 
 @bp.route("/graph/runtime")
@@ -786,18 +792,23 @@ def api_graph_world():
     })
 
 
-@bp.route("/graph/memory")
-def api_graph_memory():
+def _build_graph_memory_payload() -> dict:
     from memory import graph as kg
-    from memory.vector_store import collections_overview
+    from memory.vector_store import collections_overview_light
     from dashboard import graph_viz
     kg_data = _safe(lambda: kg.export_graph(), {"entities": [], "relations": []})
-    cols = _safe(lambda: collections_overview(samples_per=4), [])
-    return jsonify({
+    cols = _safe(collections_overview_light, [])
+    return {
         "knowledge_graph": kg_data,
         "collections": cols,
         "graph": graph_viz.build_memory_graph(kg_data, cols),
-    })
+    }
+
+
+@bp.route("/graph/memory")
+def api_graph_memory():
+    from dashboard import cache
+    return jsonify(cache.get("api:graph_memory", 60.0, _build_graph_memory_payload))
 
 
 @bp.route("/notifications")

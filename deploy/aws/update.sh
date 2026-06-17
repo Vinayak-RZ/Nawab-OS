@@ -45,6 +45,14 @@ fi
 echo "==> Restart founder-os..."
 systemctl restart founder-os
 
+if [[ -f "$APP_DIR/deploy/aws/founder-os-scheduler.service" ]]; then
+  echo "==> Scheduler service..."
+  cp "$APP_DIR/deploy/aws/founder-os-scheduler.service" /etc/systemd/system/founder-os-scheduler.service
+  systemctl daemon-reload
+  systemctl enable founder-os-scheduler 2>/dev/null || true
+  systemctl restart founder-os-scheduler || true
+fi
+
 echo "==> Health check..."
 for _ in $(seq 1 30); do
   if curl -sf http://127.0.0.1:8787/api/health >/dev/null 2>&1; then
