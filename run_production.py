@@ -21,6 +21,7 @@ def main() -> None:
     port = os.getenv("DASHBOARD_PORT", "8787")
     workers = os.getenv("GUNICORN_WORKERS", "2")
     threads = os.getenv("GUNICORN_THREADS", "4")
+    worker_class = os.getenv("GUNICORN_WORKER_CLASS", "gthread")
     timeout = os.getenv("GUNICORN_TIMEOUT", "120")
 
     gunicorn = os.path.join(os.path.dirname(sys.executable), "gunicorn")
@@ -35,6 +36,7 @@ def main() -> None:
             "dashboard.app:app",
             f"--bind={host}:{port}",
             f"--workers={workers}",
+            f"--worker-class={worker_class}",
             f"--threads={threads}",
             f"--timeout={timeout}",
             "--access-logfile=-",

@@ -62,6 +62,8 @@ sudo awk '{print $NF, $7}' /var/log/nginx/access.log | sort -rn | head -20
 2. **Bypass API:** URI Path starts with `/api/` → Bypass cache
 3. **Speed:** Brotli ON, Auto Minify CSS/JS/HTML
 
+Origin nginx now serves `/static/` with `Cache-Control: public, immutable` and gzip enabled (`deploy/aws/nginx-founder-os.conf`).
+
 ## Post-phase targets
 
 | Metric | Target |

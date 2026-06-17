@@ -9,8 +9,11 @@ DB_PATH = os.getenv("FOUNDER_OS_DB", "./data/founder_os.db")
 os.makedirs(os.path.dirname(DB_PATH) or ".", exist_ok=True)
 
 def get_conn():
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA synchronous=NORMAL")
+    conn.execute("PRAGMA busy_timeout=5000")
     return conn
 
 def init_db():
