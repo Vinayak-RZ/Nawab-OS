@@ -1,4 +1,4 @@
-/** Load after deferred GSAP / Cytoscape — init motion + redraw graphs. */
+/** Load after deferred GSAP / Cytoscape — init motion only (graphs drawn in afterRender). */
 (function () {
   function run() {
     if (window.FOSMotion) {
@@ -6,7 +6,6 @@
       FOSMotion.runShell?.();
       FOSMotion.ensureContentVisible?.();
     }
-    if (typeof drawGraphs === "function") drawGraphs();
     if (typeof drawDashboardCharts === "function" && currentView === "dashboard") {
       try { drawDashboardCharts(); } catch (e) { console.error(e); }
     }

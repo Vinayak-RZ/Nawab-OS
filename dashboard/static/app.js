@@ -635,6 +635,9 @@ let historyTab = localStorage.getItem("fos_history_tab") || "conversations";
 if (historyTab === "artifacts") historyTab = "documents";
 let documentsEditMode = false;
 let livePollTimer = null;
+let _runtimePollTick = 0;
+const LIVE_POLL_MS = 5000;
+const LIVE_POLL_HIDDEN_MS = 30000;
 let whatsappPollTimer = null;
 let memoryGraphTab = "graph";
 let worldGraphTab = "hierarchy";
@@ -1654,26 +1657,39 @@ function drawGraphs() {
 }
 
 async function loadGraphData() {
-  try {
-    state._runtimeGraph = await api("/graph/runtime");
-  } catch (_) { state._runtimeGraph = null; }
-  if (currentView === "world" || currentView === "dashboard") {
+  const view = currentView;
+  const needsRuntime = ["dashboard", "agents", "chat", "world"].includes(view);
+  if (needsRuntime && !state._runtimeGraph) {
     try {
-      const w = currentView === "world" ? await api("/graph/world") : state._world;
-      state._worldGraph = w?.graph ?? null;
-      state._worldHierarchyGraph = w?.hierarchy_graph ?? null;
-      state._worldPreviews = w?.world_previews ?? {};
-      if (currentView === "world") state._worldFull = w;
-      invalidateGraphCache("graph-world");
-    } catch (_) {}
+      state._runtimeGraph = await api("/graph/runtime");
+    } catch (_) {
+      state._runtimeGraph = null;
+    }
   }
-  if (currentView === "memory") {
-    try {
-      const m = await api("/graph/memory");
-      state._memoryGraph = m.graph ?? null;
-      state._memoryFull = m;
-      invalidateGraphCache("graph-memory");
-    } catch (_) {}
+  if (view === "world") {
+    if (!state._worldFull?.graph) {
+      try {
+        const w = await api("/graph/world");
+        state._worldGraph = w?.graph ?? null;
+        state._worldHierarchyGraph = w?.hierarchy_graph ?? null;
+        state._worldPreviews = w?.world_previews ?? {};
+        state._worldFull = w;
+        invalidateGraphCache("graph-world");
+      } catch (_) { /* keep prior graph */ }
+    }
+  } else if (view === "dashboard" && state._world) {
+    state._worldGraph = state._world.graph ?? state._worldGraph ?? null;
+    if (state._world.worlds && !state.worlds?.root) state.worlds = state._world.worlds;
+  }
+  if (view === "memory") {
+    if (!state._memoryFull?.graph) {
+      try {
+        const m = await api("/graph/memory");
+        state._memoryGraph = m.graph ?? null;
+        state._memoryFull = m;
+        invalidateGraphCache("graph-memory");
+      } catch (_) { /* keep prior graph */ }
+    }
   }
 }
 
@@ -1747,25 +1763,44 @@ async function pollLive() {
     state.live = live;
     patchLiveUI(live);
     if (["dashboard", "agents", "chat"].includes(currentView)) {
-      const prevSig = graphDataSignature(state._runtimeGraph, "runtime");
-      state._runtimeGraph = await api("/graph/runtime").catch(() => state._runtimeGraph);
-      const nextSig = graphDataSignature(state._runtimeGraph, "runtime");
-      if (prevSig !== nextSig) {
-        invalidateGraphCache("graph-runtime-dash", "graph-runtime-agents-tab", "graph-runtime-agents", "graph-runtime-chat");
-        drawGraphs();
+      const fetchRuntime = live?.active || (_runtimePollTick++ % 4 === 0);
+      if (fetchRuntime) {
+        const prevSig = graphDataSignature(state._runtimeGraph, "runtime");
+        state._runtimeGraph = await api("/graph/runtime").catch(() => state._runtimeGraph);
+        const nextSig = graphDataSignature(state._runtimeGraph, "runtime");
+        if (prevSig !== nextSig) {
+          invalidateGraphCache("graph-runtime-dash", "graph-runtime-agents-tab", "graph-runtime-agents", "graph-runtime-chat");
+          drawGraphs();
+        }
       }
     }
   } catch (_) { /* ignore */ }
 }
 
+function livePollDelayMs() {
+  return document.hidden ? LIVE_POLL_HIDDEN_MS : LIVE_POLL_MS;
+}
+
+function scheduleLivePoll() {
+  if (livePollTimer) clearTimeout(livePollTimer);
+  livePollTimer = setTimeout(async () => {
+    await pollLive();
+    scheduleLivePoll();
+  }, livePollDelayMs());
+}
+
 function startLivePoll() {
   stopLivePoll();
-  pollLive();
-  livePollTimer = setInterval(pollLive, 1500);
+  _runtimePollTick = 0;
+  void pollLive();
+  scheduleLivePoll();
 }
 
 function stopLivePoll() {
-  if (livePollTimer) { clearInterval(livePollTimer); livePollTimer = null; }
+  if (livePollTimer) {
+    clearTimeout(livePollTimer);
+    livePollTimer = null;
+  }
 }
 
 // ── Human operator UI ────────────────────────────────────────────────────────
@@ -3402,6 +3437,10 @@ async function loadViewData(view) {
   }
   if (view === "dashboard") {
     state._world = await api("/world").catch(() => state._world || {});
+    state._worldGraph = state._world?.graph ?? state._worldGraph ?? null;
+    if (!state._agents?.specialists?.length) {
+      state._agents = await api("/agents").catch(() => ({ specialists: DEFAULT_SPECIALISTS }));
+    }
     const wid = currentWorldId();
     const q = wid && wid !== "root" ? `?world_id=${encodeURIComponent(wid)}` : "";
     state._nudges = (await api(`/nudges${q}`).catch(() => ({ nudges: [] }))).nudges || [];
@@ -4593,18 +4632,40 @@ window.addEventListener("error", (e) => {
 });
 
 async function loadBootExtras() {
-  const [agents, world] = await Promise.all([
-    api("/agents").catch(() => ({})),
-    api("/world").catch(() => ({})),
-  ]);
-  state._agents = agents?.specialists?.length ? agents : { ...agents, specialists: agents.specialists || DEFAULT_SPECIALISTS };
-  state._world = world || {};
-  if (!state.worlds?.root && world?.worlds) state.worlds = world.worlds;
-  populateWorldSelect();
-  populateSpecialistSelect();
-  await loadGraphData();
-  render();
+  /* Deprecated — boot data loads via refresh() + loadViewData(). Kept for compatibility. */
 }
+
+let refreshTimer = null;
+const REFRESH_MS = 30000;
+
+function scheduleBackgroundRefresh() {
+  if (refreshTimer) clearTimeout(refreshTimer);
+  if (document.hidden) return;
+  refreshTimer = setTimeout(async () => {
+    try {
+      await refresh();
+      updateBadges();
+      updateStatus();
+    } catch (e) {
+      console.error(e);
+      setConnectionStatus("Reconnecting…", "paused");
+    }
+    scheduleBackgroundRefresh();
+  }, REFRESH_MS);
+}
+
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden) {
+    scheduleBackgroundRefresh();
+    if (!livePollTimer && state?.config) startLivePoll();
+  } else {
+    if (refreshTimer) {
+      clearTimeout(refreshTimer);
+      refreshTimer = null;
+    }
+    stopLivePoll();
+  }
+});
 
 function showPinGate(message, lockedSeconds) {
   const gate = $("#pin-gate");
@@ -4717,20 +4778,16 @@ async function startApp() {
   const gen = ++viewDataLoadGen;
   setViewLoading(true);
   render({ post: false });
-  loadViewData(currentView).then(() => {
+  try {
+    await loadViewData(currentView);
     if (gen !== viewDataLoadGen) return;
     setViewLoading(false);
     render();
-  }).catch((e) => {
+  } catch (e) {
     console.error(e);
     if (gen === viewDataLoadGen) setViewLoading(false);
-  });
-  startLivePoll();
-  try {
-    await loadBootExtras();
-  } catch (e) {
-    console.error("boot extras failed:", e);
   }
+  startLivePoll();
 }
 
 async function boot() {
@@ -4756,10 +4813,4 @@ async function boot() {
 
 boot();
 
-setInterval(() => refresh().then(() => {
-  updateBadges();
-  updateStatus();
-}).catch((e) => {
-  console.error(e);
-  setConnectionStatus("Reconnecting…", "paused");
-}), 30000);
+scheduleBackgroundRefresh();
