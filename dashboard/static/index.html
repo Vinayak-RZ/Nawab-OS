@@ -14,7 +14,7 @@
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/static/tokens.css?v=19">
   <link rel="stylesheet" href="/static/components.css?v=19">
-  <link rel="stylesheet" href="/static/app.css?v=28">
+  <link rel="stylesheet" href="/static/app.css?v=29">
   <link rel="stylesheet" href="/static/mobile.css?v=20">
 </head>
 <body>
@@ -217,6 +217,17 @@
     </div>
   </dialog>
 
+  <dialog class="md-dialog vault-picker-dialog" id="vault-picker-dialog" aria-labelledby="vault-picker-title">
+    <div class="md-dialog__head">
+      <h2 class="title-md" id="vault-picker-title">Attach from vault</h2>
+      <button type="button" class="button-outline-on-dark button-sm" id="vault-picker-close">Close</button>
+    </div>
+    <div class="md-dialog__body">
+      <p class="body-md muted">Synced markdown files from the active world will be inlined in your agent message.</p>
+      <div id="vault-picker-list" class="vault-picker-list"></div>
+    </div>
+  </dialog>
+
   <div id="ops-stack" class="ops-stack" aria-live="polite" aria-label="Background operations" hidden></div>
 
   <!-- Core UI first — must not depend on CDN (blocked CDN was preventing app.js from ever running) -->
@@ -255,7 +266,7 @@
   </script>
   <script src="/static/markdown.js?v=27"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
-  <script src="/static/app.js?v=29"></script>
+  <script src="/static/app.js?v=30"></script>
   <!-- Optional enhancements (graphs + motion) — deferred so boot is never blocked -->
   <script defer src="https://cdn.jsdelivr.net/npm/gsap@3.12.7/dist/gsap.min.js"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/gsap@3.12.7/dist/ScrollTrigger.min.js"></script>

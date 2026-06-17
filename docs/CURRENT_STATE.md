@@ -49,25 +49,19 @@ Aggregates actionable items:
 - Active goals (top 5)
 - Vault-derived lead nudges (synced GitHub docs mentioning leads + prospect contacts not contacted)
 
-### Frontend — partial (CSS/HTML only, **JS not wired yet**)
-| Added | Not wired in `app.js` yet |
-|-------|---------------------------|
-| `#global-progress` bar in `index.html` | `setViewLoading()` still only toggles opacity |
-| Skeleton + up-next + github-tree + chat-attachment CSS in `app.css` | No skeleton render, no Up Next panel |
-| Cache bust `app.css?v=28`, `app.js?v=29` | `app.js` unchanged on this branch |
+## In progress (UX overhaul — main branch)
 
----
-
-## Not started (planned — see `UX_OVERHAUL_PLAN.md`)
-
-- Wire global progress bar + skeleton loaders in `app.js`
-- Dashboard dedup + **Up Next** panel using `/api/nudges`
-- GitHub **folder tree** (not flat list) + **Tag in agent** button
-- Chat: inline specialist picker, vault attachment chips, `attachments` in `startAgentJob`
-- CRM: follow-up buttons in UI
-- Goals: reminder done/cancel buttons
-- Notifications: click-through to Approvals/CRM/Goals
-- Remove redundant dashboard panels (command header, duplicate fleet graph)
+### Frontend — wired in this push
+| Feature | Status |
+|---------|--------|
+| Global progress bar + view skeletons | Done |
+| Dashboard **Up Next** (`/api/nudges`) | Done |
+| Dashboard dedup (no duplicate fleet/graph header) | Done |
+| GitHub **folder tree** + Tag in agent | Done |
+| Chat: specialist picker, vault attach, attachment chips | Done |
+| CRM follow-up buttons, Goals reminder done/cancel | Done |
+| Notifications open → view | Done |
+| Vault loading skeletons, removed legacy slots overview | Done |
 
 ---
 

@@ -3213,11 +3213,11 @@ td {
 }
 
 .content--loading {
-  pointer-events: none;
+  /* Legacy — skeleton + progress bar replace dimmed dead UI */
 }
 
 .content--loading #content {
-  opacity: 0.55;
+  opacity: 1;
 }
 
 .global-progress {
@@ -3331,6 +3331,95 @@ td {
   font-size: 0.8rem;
   color: var(--color-muted);
   margin-top: 2px;
+}
+
+.capability-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-xs);
+}
+
+.chat-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: var(--space-xs);
+}
+
+.chat-attachment-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border: 1px solid var(--color-hairline);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-xs);
+  background: var(--color-surface);
+}
+
+.chat-attachment-chip__remove {
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  color: var(--color-muted);
+  padding: 0 2px;
+}
+
+.vault-picker-list {
+  display: grid;
+  gap: var(--space-xs);
+  margin-top: var(--space-sm);
+  max-height: 50vh;
+  overflow-y: auto;
+}
+
+.vault-picker-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--color-hairline);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+}
+
+.vault-picker-item:hover {
+  border-color: var(--color-primary);
+}
+
+.reminder-row,
+.crm-followup-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-xs);
+  flex-wrap: wrap;
+}
+
+.reminder-row__actions {
+  display: flex;
+  gap: 4px;
+}
+
+.github-tree-dir {
+  margin-left: var(--space-xs);
+}
+
+.github-tree-dir > summary {
+  cursor: pointer;
+  padding: 4px 0;
+}
+
+.github-tree--repo {
+  margin-top: var(--space-xs);
 }
 
 .capability-strip {

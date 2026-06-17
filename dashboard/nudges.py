@@ -28,14 +28,14 @@ def _vault_lead_nudges(world_id: str | None = None) -> list[dict]:
     try:
         conn = get_conn()
         if world_id:
-            prospects = conn.execute(
+            prospects = [dict(r) for r in conn.execute(
                 "SELECT id, name, company, status FROM contacts WHERE status = 'prospect' LIMIT 20"
-            ).fetchall()
+            ).fetchall()]
             docs = vault_documents.list_documents(world_id)
         else:
-            prospects = conn.execute(
+            prospects = [dict(r) for r in conn.execute(
                 "SELECT id, name, company, status FROM contacts WHERE status = 'prospect' LIMIT 20"
-            ).fetchall()
+            ).fetchall()]
             docs = []
             for wid_row in conn.execute("SELECT DISTINCT world_id FROM vault_documents").fetchall():
                 docs.extend(vault_documents.list_documents(wid_row["world_id"]))

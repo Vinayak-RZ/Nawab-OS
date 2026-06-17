@@ -46,6 +46,7 @@ let state = {
   },
   _worldTemplates: null,
   _operations: {},
+  _chatAttachments: [],
 };
 state._syncingLinkIds = new Set();
 let currentView = "dashboard";
@@ -90,13 +91,23 @@ async function loadChatFromServer() {
 }
 
 function chatPayload(extra = {}) {
-  return {
+  const payload = {
     world_id: currentWorldId(),
     rag_mode: currentRagMode(),
     session_id: chatSessionId() || undefined,
     specialist: currentSpecialistId() || undefined,
     ...extra,
   };
+  const atts = (state._chatAttachments || []).filter(a => a?.doc_id);
+  if (atts.length) {
+    payload.attachments = atts.map(a => ({
+      type: "vault",
+      doc_id: a.doc_id,
+      title: a.title,
+      path: a.path,
+    }));
+  }
+  return payload;
 }
 
 function sleep(ms) {
@@ -335,6 +346,106 @@ function findReadmeDoc(docs) {
   return readmes.sort((a, b) => (a.github_path || a.filename || "").length - (b.github_path || b.filename || "").length)[0];
 }
 
+function buildGithubPathTree(docs) {
+  const root = { name: "", dirs: {}, files: [] };
+  for (const doc of docs) {
+    const path = doc.github_path || doc.filename || doc.title || "file";
+    const parts = path.split("/").filter(Boolean);
+    const fileName = parts.pop() || path;
+    let node = root;
+    for (const part of parts) {
+      if (!node.dirs[part]) node.dirs[part] = { name: part, dirs: {}, files: [] };
+      node = node.dirs[part];
+    }
+    node.files.push({ ...doc, _fileName: fileName });
+  }
+  return root;
+}
+
+function countGithubTreeFiles(node) {
+  let n = (node.files || []).length;
+  for (const k of Object.keys(node.dirs || {})) n += countGithubTreeFiles(node.dirs[k]);
+  return n;
+}
+
+function renderGithubTreeNode(node, worldId, depth = 0) {
+  const dirKeys = Object.keys(node.dirs || {}).sort();
+  const files = (node.files || []).sort((a, b) => a._fileName.localeCompare(b._fileName));
+  let html = "";
+  for (const k of dirKeys) {
+    const child = node.dirs[k];
+    const fileCount = countGithubTreeFiles(child);
+    html += `<details class="github-tree-dir"${depth < 2 ? " open" : ""}>
+      <summary><span class="mono">${esc(k)}</span> <span class="muted">${fileCount} file${fileCount !== 1 ? "s" : ""}</span></summary>
+      <div class="github-tree">${renderGithubTreeNode(child, worldId, depth + 1)}</div>
+    </details>`;
+  }
+  for (const d of files) {
+    const path = d.github_path || d.filename || d.title;
+    const isReadme = /^readme\.md$/i.test((path || "").split("/").pop() || "");
+    html += `<div class="github-tree-file">
+      <span class="github-tree-file__path mono${isReadme ? " is-readme" : ""}">${esc(path)}</span>
+      <span class="github-tree-file__actions">
+        <button type="button" class="button-outline-on-dark button-sm" data-vault-view-doc="${d.id}" data-world-id="${esc(worldId)}" data-doc-title="${esc(d.title || path)}">View</button>
+        <button type="button" class="button-primary button-sm" data-tag-vault-doc="${d.id}" data-world-id="${esc(worldId)}" data-doc-title="${esc(d.title || path)}" data-doc-path="${esc(path)}">Tag in agent</button>
+      </span>
+    </div>`;
+  }
+  return html;
+}
+
+function tagVaultDocInChat(docId, worldId, title, path) {
+  if (!state._chatAttachments) state._chatAttachments = [];
+  const id = Number(docId);
+  if (!state._chatAttachments.some(a => a.doc_id === id)) {
+    state._chatAttachments.push({
+      type: "vault",
+      doc_id: id,
+      title: title || path || "Document",
+      path: path || "",
+      world_id: worldId,
+    });
+  }
+  goView("chat");
+}
+
+function renderChatAttachmentChips() {
+  const atts = state._chatAttachments || [];
+  if (!atts.length) return "";
+  return `<div class="chat-attachments">${atts.map((a, i) =>
+    `<span class="chat-attachment-chip">
+      <span>📎 ${esc(a.title || "File")}</span>
+      <button type="button" class="chat-attachment-chip__remove" data-remove-attachment="${i}" aria-label="Remove attachment">×</button>
+    </span>`
+  ).join("")}</div>`;
+}
+
+async function openVaultAttachPicker() {
+  const wid = currentWorldId();
+  if (!wid || wid === "root") {
+    alert("Select a project world (not Main) to attach vault documents.");
+    return;
+  }
+  await ensureVaultForWorld(wid);
+  const vault = vaultPayload() || {};
+  const facets = vault.facets || vault.folders || [];
+  const docs = [];
+  for (const f of facets) {
+    for (const d of f.documents || []) {
+      if (isMarkdownFilename(d.filename || d.github_path)) docs.push(d);
+    }
+  }
+  const list = $("#vault-picker-list");
+  const dlg = $("#vault-picker-dialog");
+  if (!list || !dlg) return;
+  list.innerHTML = docs.length ? docs.map(d => `
+    <button type="button" class="vault-picker-item" data-pick-vault-doc="${d.id}" data-world-id="${esc(wid)}" data-doc-title="${esc(d.title)}" data-doc-path="${esc(d.github_path || d.filename || "")}">
+      <strong>${esc(d.title)}</strong>
+      <span class="muted">${esc(d.github_path || d.filename || "")}</span>
+    </button>`).join("") : "<p class='body-md muted'>No markdown docs in vault — link and sync a GitHub repo in Worlds.</p>";
+  dlg.showModal();
+}
+
 function resetMdEditorDialog() {
   mdEditorState = { mode: null, artifactId: null, worldId: null, docId: null, editMode: false };
   $("#md-dialog-source").hidden = true;
@@ -486,6 +597,7 @@ async function startAgentJob(message, { direct = false, specId = "" } = {}) {
     body: JSON.stringify(payload),
     timeoutMs: 20000,
   });
+  state._chatAttachments = [];
   const job = started.job;
   chatHistory.push({ role: "agent", text: "", pending: true, jobId: job.id, pendingLabel: job.phase || "Starting…" });
   localStorage.setItem("fos_chat", JSON.stringify(chatHistory));
@@ -567,9 +679,84 @@ function invalidateGraphCache(...ids) {
   ids.forEach(id => delete graphDrawCache[id]);
 }
 
-function setViewLoading(on) {
+function setViewLoading(on, opts = {}) {
   state._viewLoading = !!on;
-  document.querySelector(".content")?.classList.toggle("content--loading", !!on);
+  const bar = document.getElementById("global-progress");
+  const inner = bar?.querySelector(".global-progress__bar");
+  if (bar) {
+    bar.hidden = !on;
+    bar.setAttribute("aria-hidden", on ? "false" : "true");
+    if (on && opts.progress == null) {
+      bar.classList.add("is-indeterminate");
+      if (inner) inner.style.width = "";
+    } else if (on && opts.progress != null) {
+      bar.classList.remove("is-indeterminate");
+      if (inner) inner.style.width = `${Math.min(100, opts.progress)}%`;
+    } else {
+      bar.classList.remove("is-indeterminate");
+      if (inner) inner.style.width = "0";
+    }
+  }
+}
+
+function skeletonLine(width = "72%") {
+  return `<span class="skeleton" style="display:block;height:12px;width:${width}"></span>`;
+}
+
+function skeletonCard(lines = 3) {
+  const body = Array.from({ length: lines }, (_, i) => skeletonLine(i === 0 ? "38%" : "88%")).join("");
+  return `<div class="skeleton-card driver-card">${body}</div>`;
+}
+
+function renderViewSkeleton(view) {
+  const grid3 = `<div class="skeleton-grid">${skeletonCard(2)}${skeletonCard(2)}${skeletonCard(2)}</div>`;
+  if (view === "dashboard") {
+    return `<div class="view-skeleton dashboard-grid">${skeletonCard(2)}<div class="span-8">${skeletonCard(4)}</div><div class="span-4">${skeletonCard(2)}</div>${grid3}</div>`;
+  }
+  if (view === "chat") {
+    return `<div class="view-skeleton"><div class="skeleton-card driver-card">${skeletonLine("30%")}${skeletonLine("60%")}</div><div class="skeleton-card driver-card" style="min-height:280px">${skeletonLine("100%")}${skeletonLine("92%")}${skeletonLine("78%")}</div></div>`;
+  }
+  if (view === "world") {
+    return `<div class="view-skeleton dashboard-grid"><div class="span-4">${skeletonCard(3)}</div><div class="span-8">${skeletonCard(5)}</div>${grid3}</div>`;
+  }
+  if (view === "documents") {
+    return `<div class="view-skeleton docs-workspace"><div class="skeleton-card driver-card">${skeletonCard(4)}</div><div class="skeleton-card driver-card">${skeletonCard(6)}</div></div>`;
+  }
+  return `<div class="view-skeleton">${skeletonCard(3)}${grid3}</div>`;
+}
+
+function renderUpNext() {
+  const nudges = state._nudges || [];
+  if (!nudges.length) return "";
+  const items = nudges.slice(0, 8).map((n, i) => `
+    <li class="up-next-item${(n.priority || 9) <= 2 ? " is-urgent" : ""}">
+      <div class="up-next-item__body">
+        <p class="up-next-item__title">${esc(n.title)}</p>
+        <p class="up-next-item__meta muted">${esc(n.body || "")}</p>
+      </div>
+      <button type="button" class="button-outline-on-dark button-sm" data-nudge-index="${i}">Open</button>
+    </li>`).join("");
+  return `<section class="driver-card span-12 up-next-panel">
+    <p class="caption-uppercase">Up next</p>
+    <p class="body-md muted">Reminders, follow-ups, approvals, and vault prompts for your active world.</p>
+    <ul class="up-next-list">${items}</ul>
+  </section>`;
+}
+
+function handleNudgeAction(index) {
+  const n = state._nudges?.[Number(index)];
+  if (!n) return;
+  if (n.kind === "vault_leads" && n.meta?.doc_id) {
+    tagVaultDocInChat(n.meta.doc_id, n.meta.world_id, n.title, "");
+    return;
+  }
+  const action = n.action || "chat";
+  if (action === "crm") return goView("crm");
+  if (action === "goals") return goView("goals");
+  if (action === "approvals") return goView("approvals");
+  if (action === "documents") return goView("documents");
+  if (action === "world") return goView("world");
+  goView(action);
 }
 
 const TITLES = {
@@ -830,6 +1017,11 @@ function populateSpecialistSelect() {
   if (el) {
     el.innerHTML = html;
     el.value = current;
+  }
+  const chatEl = $("#chat-specialist-select");
+  if (chatEl) {
+    chatEl.innerHTML = html;
+    chatEl.value = current;
   }
 }
 
@@ -1657,26 +1849,11 @@ function renderDashboard() {
   const live = state.live || {};
   const agents = state._agents || {};
 
-  return `
-    <header class="command-header driver-card">
-      <div>
-        <p class="section-eyebrow">${esc(cfg.company_name || APP_NAME)}</p>
-        <h2 class="title-md">${esc(ownerLabel())}</h2>
-      </div>
-      <div class="command-header__actions">
-        <button type="button" class="button-primary button-sm" data-operator="create-world">New world</button>
-        <button type="button" class="button-outline-on-dark button-sm" data-goto="crm">CRM</button>
-        <button type="button" class="button-outline-on-dark button-sm" data-goto="goals">Goals</button>
-        <button type="button" class="button-outline-on-dark button-sm" data-goto="chat">Ask agent</button>
-        ${pending > 0 ? `<button type="button" class="button-outline-on-dark button-sm" data-goto="approvals">Approvals (${pending})</button>` : ""}
-      </div>
-    </header>
-    <div class="dashboard-grid">
+  return `<div class="dashboard-grid">
+      ${renderUpNext()}
       ${renderOperatorPanel()}
       <section class="driver-card span-8">
         ${renderLivePanel(live)}
-        <p class="caption-uppercase" style="margin-top:var(--space-md)">Runtime graph</p>
-        <div id="graph-runtime-dash" class="graph-canvas graph-canvas--compact" style="margin-top:var(--space-xs)"></div>
       </section>
       <section class="driver-card span-4">
         <p class="caption-uppercase">World state</p>
@@ -1687,6 +1864,13 @@ function renderDashboard() {
           <div class="spec-cell"><dt>Contacts</dt><dd>${crm.total_contacts || 0}</dd></div>
           ${approvalCell}
         </dl>
+        <div class="capability-strip" style="margin-top:var(--space-sm)">
+          <button type="button" class="button-outline-on-dark button-sm" data-goto="chat">Ask agent</button>
+          <button type="button" class="button-outline-on-dark button-sm" data-goto="world">Worlds</button>
+          <button type="button" class="button-outline-on-dark button-sm" data-goto="documents">Documents</button>
+          <button type="button" class="button-outline-on-dark button-sm" data-goto="crm">CRM</button>
+          <button type="button" class="button-outline-on-dark button-sm" data-goto="goals">Goals</button>
+        </div>
       </section>
       <section class="driver-card span-4 chart-panel">
         <p class="caption-uppercase">Tools by category</p>
@@ -1712,10 +1896,6 @@ function renderDashboard() {
           `<span class="specialist-chip${agentBusy(live, s.id) ? " is-busy" : ""}">${esc(s.label)}</span>`
         ).join("")}</div>
         <button type="button" class="button-outline-on-dark button-sm" data-goto="agents" style="margin-top:var(--space-sm)">Open agents</button>
-      </section>
-      <section class="driver-card span-12">
-        <p class="caption-uppercase">Agent fleet</p>
-        <div style="margin-top:var(--space-sm)">${renderAgentCards(agents, live)}</div>
       </section>
       <section class="driver-card span-6">
         <p class="caption-uppercase">Runway ${finPill}</p>
@@ -2209,11 +2389,9 @@ function renderGithubReposPanel(w, vault) {
     const repoDocs = githubRepoDocuments(vault, r.full_name);
     const readme = findReadmeDoc(repoDocs);
     const mdFiles = repoDocs.filter(d => isMarkdownFilename(d.github_path || d.filename));
-    const fileItems = mdFiles.map(d => {
-      const path = d.github_path || d.filename || d.title;
-      const isReadme = /^readme\.md$/i.test((path || "").split("/").pop() || "");
-      return `<li><button type="button" class="github-repo-file-link${isReadme ? " is-readme" : ""}" data-vault-view-doc="${d.id}" data-world-id="${esc(w.id)}" data-doc-title="${esc(d.title || path)}">${esc(path)}</button></li>`;
-    }).join("");
+    const treeHtml = mdFiles.length
+      ? `<div class="github-tree github-tree--repo">${renderGithubTreeNode(buildGithubPathTree(mdFiles), w.id)}</div>`
+      : "";
     return `
     <div class="github-repo-row">
       <div>
@@ -2227,10 +2405,10 @@ function renderGithubReposPanel(w, vault) {
         <button type="button" class="button-outline-on-dark button-sm${syncing ? " is-busy" : ""}" data-github-sync="${r.id}" data-world-id="${esc(w.id)}"${syncing ? " disabled" : ""}>${syncing ? "Syncing…" : `Sync to ${esc(vaultStorageLabel())}`}</button>
         <button type="button" class="button-tertiary-text button-sm" data-github-unlink="${r.id}" data-world-id="${esc(w.id)}"${syncing ? " disabled" : ""}>Unlink</button>
       </div>
-      ${repoDocs.length ? `<details class="github-repo-files">
-        <summary class="caption-uppercase">${mdFiles.length} markdown file${mdFiles.length === 1 ? "" : "s"} synced from this repo</summary>
-        <ul class="github-repo-file-list">${fileItems || "<li class='muted body-md'>No markdown files synced yet.</li>"}</ul>
-      </details>` : `<p class="body-md muted github-repo-files-empty">No files synced yet — link and sync to browse README and markdown files here.</p>`}
+      ${repoDocs.length ? `<details class="github-repo-files" open>
+        <summary class="caption-uppercase">Repo structure · ${mdFiles.length} markdown file${mdFiles.length === 1 ? "" : "s"}</summary>
+        ${treeHtml || "<p class='muted body-md'>No markdown files synced yet.</p>"}
+      </details>` : `<p class="body-md muted github-repo-files-empty">No files synced yet — link and sync to browse the repo tree here.</p>`}
     </div>`;
   }).join("");
 
@@ -2290,7 +2468,9 @@ function renderWorldVaultPanel(w) {
     <section class="driver-card vault-panel knowledge-panel panel-loading" style="margin-top:var(--space-md)">
       <p class="section-eyebrow">Knowledge vault</p>
       <h3 class="title-sm">${esc(w.name)}</h3>
-      <p class="body-md muted">Loading vault registry for this world…</p>
+      <div class="skeleton-grid" style="margin-top:var(--space-sm)">
+        ${skeletonCard(3)}${skeletonCard(3)}${skeletonCard(3)}
+      </div>
     </section>`;
   }
   const vault = vaultPayload() || {};
@@ -2318,6 +2498,7 @@ function renderWorldVaultPanel(w) {
       <p class="body-md">${esc(d.description || "No description")}</p>
       <div class="vault-doc-card__actions">
         ${canView ? `<button type="button" class="button-primary button-sm" data-vault-view-doc="${d.id}" data-world-id="${esc(w.id)}" data-doc-title="${esc(d.title)}">View</button>` : ""}
+        <button type="button" class="button-outline-on-dark button-sm" data-tag-vault-doc="${d.id}" data-world-id="${esc(w.id)}" data-doc-title="${esc(d.title)}" data-doc-path="${esc(d.github_path || d.filename || "")}">Tag in agent</button>
         <button type="button" class="button-outline-on-dark button-sm" data-vault-edit-doc="${d.id}">Edit</button>
         <button type="button" class="button-tertiary-text button-sm" data-vault-delete-doc="${d.id}">Remove</button>
       </div>
@@ -2357,14 +2538,6 @@ function renderWorldVaultPanel(w) {
         <button type="button" class="button-outline-on-dark button-sm" data-vault-search="${esc(w.id)}">Search</button>
       </div>
       <pre class="vault-search-results mono" id="vault-search-results" hidden></pre>
-      <details class="vault-legacy-facets" style="margin-top:var(--space-md)">
-        <summary class="caption-uppercase">All slots overview</summary>
-        <div class="vault-facet-grid" style="margin-top:var(--space-sm)">${facets.map(f => `
-          <article class="vault-facet-card">
-            <div class="vault-facet-head"><h4>${esc(f.label)}</h4><span class="badge-pill">${f.file_count || 0}</span></div>
-            <p class="world-meta">${esc(f.folder)}/ · ${counts[f.domain] || 0} vectors</p>
-          </article>`).join("")}</div>
-      </details>
     </section>`;
 }
 
@@ -2499,13 +2672,22 @@ function renderChat() {
           ${empty ? `<div class="chat-empty">
             <p class="title-md">Supervisor ready</p>
             <p class="body-md">Routing: <strong>${esc(routeLabel)}</strong> · Retrieval: <strong>${esc(ragMeta.label)}</strong></p>
-            <div class="chat-empty__chips">${specs.map(s =>
-              `<button type="button" class="delegate-hint" data-goto="agents">${esc(s.label)}</button>`
-            ).join("")}</div>
+            <div class="capability-strip chat-empty__chips">
+              <button type="button" class="delegate-hint" data-goto="crm">CRM</button>
+              <button type="button" class="delegate-hint" data-goto="goals">Goals</button>
+              <button type="button" class="delegate-hint" data-goto="world">Vault / Worlds</button>
+              <button type="button" class="delegate-hint" data-goto="documents">Documents</button>
+              <button type="button" class="delegate-hint" data-goto="agents">Agents</button>
+            </div>
           </div>` : msgs}
         </div>
         <div class="chat-composer driver-card">
+          ${renderChatAttachmentChips()}
           <div class="chat-composer__controls">
+            <label class="chat-control">
+              <span class="caption-uppercase">Specialist</span>
+              <select id="chat-specialist-select" class="world-select agent-select" aria-label="Specialist routing"></select>
+            </label>
             ${renderRagModeSelect("rag-mode-select")}
           </div>
           <div class="chat-input-row">
@@ -2514,6 +2696,7 @@ function renderChat() {
           </div>
           <div class="chat-toolbar">
             <label class="button-outline-on-dark button-sm upload-label">Upload<input type="file" id="chat-file" hidden accept=".pdf,.docx,.txt,.md,.csv,.json"></label>
+            <button type="button" class="button-outline-on-dark button-sm" data-open-vault-picker>Attach vault</button>
             <button type="button" class="button-outline-on-dark button-sm" data-new-chat-session>New chat</button>
             ${jobRunning ? `<button type="button" class="button-outline-on-dark button-sm" data-cancel-active-job>Stop</button>` : ""}
             <button type="button" class="button-outline-on-dark button-sm" data-goto="world">Worlds</button>
@@ -2575,9 +2758,16 @@ function renderCrm() {
   const rows = contacts.slice(0, 50).map(c => `<tr>
     <td>${esc(c.name)}</td><td>${esc(c.company || "—")}</td><td>${esc(c.role || "—")}</td>
     <td><select class="text-input-on-dark crm-status-select" data-crm-status="${c.id}" aria-label="Status for ${esc(c.name)}">${statusOpts(c.status || "prospect")}</select></td>
-    <td class="muted">${esc(c.email || "")}</td></tr>`).join("");
+    <td class="muted">${esc(c.email || "")}</td>
+    <td>
+      <button type="button" class="button-outline-on-dark button-sm" data-crm-followup="${c.id}" data-followup-days="3">3d</button>
+      <button type="button" class="button-outline-on-dark button-sm" data-crm-followup="${c.id}" data-followup-days="7">7d</button>
+    </td></tr>`).join("");
 
-  const fu = followups.map(c => `<li>${esc(c.name)} @ ${esc(c.company || "?")}</li>`).join("") || "<li class='muted'>None due</li>";
+  const fu = followups.map(c => `<li class="crm-followup-row">
+    <span>${esc(c.name)} @ ${esc(c.company || "?")}</span>
+    <button type="button" class="button-outline-on-dark button-sm" data-goto="crm">Open</button>
+  </li>`).join("") || "<li class='muted'>None due</li>";
 
   return `<div class="dashboard-grid">
     <section class="driver-card span-12 human-panel">
@@ -2621,8 +2811,8 @@ function renderCrm() {
     <section class="driver-card span-8"><p class="caption-uppercase">Follow-ups due</p><ul class="list-plain" style="margin-top:var(--space-sm)">${fu}</ul></section>
     <section class="band-light span-12">
       <p class="caption-uppercase" style="color:var(--color-muted)">Contacts (${contacts.length})</p>
-      <div class="table-wrap"><table><thead><tr><th>Name</th><th>Company</th><th>Role</th><th>Status</th><th>Email</th></tr></thead>
-      <tbody>${rows || '<tr><td colspan="5" class="muted">No contacts yet — use Add contact above.</td></tr>'}</tbody></table></div>
+      <div class="table-wrap"><table><thead><tr><th>Name</th><th>Company</th><th>Role</th><th>Status</th><th>Email</th><th>Follow up</th></tr></thead>
+      <tbody>${rows || '<tr><td colspan="6" class="muted">No contacts yet — use Add contact above.</td></tr>'}</tbody></table></div>
     </section>
   </div>`;
 }
@@ -2636,7 +2826,13 @@ function renderGoals() {
     <button type="button" class="button-outline-on-dark button-sm" data-goal-done="${x.id}">Done</button>
   </li>`).join("") || "<li class='muted'>No active goals — add one below.</li>";
   const tasks = (state.tasks || []).map(t => `<li>${esc(t.title)} <span class="muted">P${t.priority || 3}</span></li>`).join("") || "<li class='muted'>No open tasks</li>";
-  const rems = (g.reminders || []).map(r => `<li>${esc(r.text)} <span class="muted">${esc(r.due_at)}</span></li>`).join("") || "<li class='muted'>No reminders</li>";
+  const rems = (g.reminders || []).map(r => `<li class="reminder-row">
+    <span>${esc(r.text)} <span class="muted">${esc((r.due_at || "").slice(0, 16).replace("T", " "))}</span></span>
+    <span class="reminder-row__actions">
+      <button type="button" class="button-outline-on-dark button-sm" data-reminder-done="${r.id}">Done</button>
+      <button type="button" class="button-tertiary-text button-sm" data-reminder-cancel="${r.id}">Cancel</button>
+    </span>
+  </li>`).join("") || "<li class='muted'>No reminders</li>";
   const plans = (g.plans || []).map(p => `<li>${esc(p.goal)}</li>`).join("") || "<li class='muted'>No open plans</li>";
 
   return `<div class="dashboard-grid">
@@ -3092,6 +3288,9 @@ async function loadViewData(view) {
   }
   if (view === "dashboard") {
     state._world = await api("/world").catch(() => state._world || {});
+    const wid = currentWorldId();
+    const q = wid && wid !== "root" ? `?world_id=${encodeURIComponent(wid)}` : "";
+    state._nudges = (await api(`/nudges${q}`).catch(() => ({ nudges: [] }))).nudges || [];
   }
   await loadGraphData();
 }
@@ -3193,7 +3392,11 @@ function render(opts = {}) {
     settings: renderSettings,
   };
   try {
-    el.innerHTML = (fns[currentView] || renderDashboard)();
+    if (state._viewLoading) {
+      el.innerHTML = renderViewSkeleton(currentView);
+    } else {
+      el.innerHTML = (fns[currentView] || renderDashboard)();
+    }
   } catch (e) {
     console.error("render failed:", e);
     el.innerHTML = `<div class="driver-card span-12">
@@ -3240,7 +3443,9 @@ function initContentDelegation() {
       + "[data-github-add],[data-github-sync],[data-github-unlink],[data-goal-done],"
       + "[data-history-tab],[data-history-session],[data-open-chat-session],[data-new-chat-session],"
       + "[data-chat-session],[data-cancel-job],[data-cancel-active-job],[data-md-artifact],[data-open-document],"
-      + "[data-select-document],[data-docs-action],"
+      + "[data-select-document],[data-docs-action],[data-tag-vault-doc],[data-nudge-index],"
+      + "[data-remove-attachment],[data-open-vault-picker],[data-pick-vault-doc],"
+      + "[data-crm-followup],[data-reminder-done],[data-reminder-cancel],[data-notif-action],"
       + "#chat-send,#chat-clear,#memory-search,#toggle-pause,#agents-vault-search,"
       + "#delegate-selected-btn,#btn-logout,#btn-infra-refresh"
     );
@@ -3325,6 +3530,25 @@ function initContentDelegation() {
       if (!docId) return;
       return openVaultDocViewer(worldId, docId, el.dataset.docTitle || "Document");
     }
+    if (el.dataset.tagVaultDoc) {
+      return tagVaultDocInChat(el.dataset.tagVaultDoc, el.dataset.worldId, el.dataset.docTitle, el.dataset.docPath);
+    }
+    if (el.dataset.nudgeIndex !== undefined) return handleNudgeAction(el.dataset.nudgeIndex);
+    if (el.dataset.removeAttachment !== undefined) {
+      const idx = Number(el.dataset.removeAttachment);
+      if (!Number.isNaN(idx)) state._chatAttachments?.splice(idx, 1);
+      return render();
+    }
+    if (el.dataset.openVaultPicker !== undefined) return openVaultAttachPicker().catch(e => alert(e.message));
+    if (el.dataset.pickVaultDoc) {
+      tagVaultDocInChat(el.dataset.pickVaultDoc, el.dataset.worldId, el.dataset.docTitle, el.dataset.docPath);
+      $("#vault-picker-dialog")?.close();
+      return;
+    }
+    if (el.dataset.crmFollowup) return scheduleCrmFollowup(el.dataset.crmFollowup, el.dataset.followupDays);
+    if (el.dataset.reminderDone) return updateReminderStatus(el.dataset.reminderDone, "done");
+    if (el.dataset.reminderCancel) return updateReminderStatus(el.dataset.reminderCancel, "cancelled");
+    if (el.dataset.notifAction) return openNotificationAction(el.dataset.notifAction, el.dataset.notifId);
     if (el.dataset.vaultDeleteDoc) return deleteVaultDoc(inspectorWorldId(), el.dataset.vaultDeleteDoc);
     if (el.dataset.githubAdd) return connectGithubRepo(el.dataset.githubAdd);
     if (el.dataset.githubSync) return syncGithubRepo(el.dataset.worldId, el.dataset.githubSync);
@@ -3397,6 +3621,7 @@ function initContentDelegation() {
       return;
     }
     if (e.target.id === "specialist-select-agents") return selectSpecialist(e.target.value);
+    if (e.target.id === "chat-specialist-select") return selectSpecialist(e.target.value);
     if (e.target.id === "rag-mode-select") {
       state.ragMode = e.target.value || "auto";
       localStorage.setItem("fos_rag_mode", state.ragMode);
@@ -4014,17 +4239,62 @@ async function refresh() {
   updateStatus();
 }
 
+async function scheduleCrmFollowup(contactId, days) {
+  const d = parseInt(days, 10) || 7;
+  await api(`/crm/contacts/${contactId}/followup`, {
+    method: "POST",
+    body: JSON.stringify({ days: d }),
+    timeoutMs: 15000,
+  });
+  state._crm = await api("/crm/contacts");
+  if (currentView === "crm") render();
+}
+
+async function updateReminderStatus(reminderId, status) {
+  await api(`/reminders/${reminderId}`, {
+    method: "PATCH",
+    body: JSON.stringify({ status }),
+    timeoutMs: 15000,
+  });
+  state._goals = await api("/goals");
+  if (currentView === "goals") render();
+  if (currentView === "dashboard") {
+    const wid = currentWorldId();
+    const q = wid && wid !== "root" ? `?world_id=${encodeURIComponent(wid)}` : "";
+    state._nudges = (await api(`/nudges${q}`).catch(() => ({ nudges: [] }))).nudges || [];
+    render();
+  }
+}
+
+async function openNotificationAction(action, notifId) {
+  if (notifId) {
+    await api(`/notifications/${encodeURIComponent(notifId)}/read`, { method: "POST" }).catch(() => {});
+    await refresh();
+    updateBadges();
+  }
+  if (action === "approvals") goView("approvals");
+  else if (action === "crm") goView("crm");
+  else if (action === "goals") goView("goals");
+  else if (action === "chat") goView("chat");
+  else goView(action || "dashboard");
+  $("#notif-drawer")?.close();
+}
+
 function renderNotifications() {
   const items = state.notifications || [];
   $("#notif-list").innerHTML = items.length ? items.map(n => {
+    const action = n.meta?.action || (n.kind === "approval" ? "approvals" : n.kind === "agent" ? "chat" : "");
+    const actionBtn = action
+      ? `<button type="button" class="button-outline-on-dark button-sm" data-notif-action="${esc(action)}" data-notif-id="${esc(n.id)}" style="margin-top:8px">Open</button>`
+      : "";
     const url = n.meta?.url;
-    const link = url ? `<a class="button-outline-on-dark button-sm" href="${esc(url)}" target="_blank" rel="noopener" style="margin-top:8px;display:inline-block">Open</a>` : "";
+    const link = !actionBtn && url ? `<a class="button-outline-on-dark button-sm" href="${esc(url)}" target="_blank" rel="noopener" style="margin-top:8px;display:inline-block">Open</a>` : "";
     return `
-    <div class="notif-item ${n.read ? "" : "unread"}">
+    <div class="notif-item ${n.read ? "" : "unread"}" data-notif-id="${esc(n.id)}">
       <div class="title">${esc(n.title)}</div>
       <div class="body">${esc(n.body)}</div>
       <div class="muted" style="font-size:11px;margin-top:4px">${fmtTime(n.ts)}</div>
-      ${link}
+      ${actionBtn || link}
     </div>`;
   }).join("") : "<p class='muted'>No notifications yet.</p>";
 }
@@ -4053,6 +4323,10 @@ function initSidebarCollapse() {
 }
 
 initSidebarCollapse();
+$("#vault-picker-close")?.addEventListener("click", () => $("#vault-picker-dialog")?.close());
+$("#vault-picker-dialog")?.addEventListener("click", (e) => {
+  if (e.target.id === "vault-picker-dialog") $("#vault-picker-dialog").close();
+});
 $("#sidebar-close")?.addEventListener("click", closeMobileShell);
 $("#sidebar-backdrop")?.addEventListener("click", closeMobileShell);
 document.querySelectorAll(".mobile-tab").forEach(tab => {
