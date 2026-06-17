@@ -695,6 +695,74 @@ function setViewLoading(on, opts = {}) {
   }
 }
 
+let actionBusyDepth = 0;
+let actionBusyButton = null;
+
+/** Show top progress bar + busy cursor while an async UI action runs. */
+function beginActionBusy(btn) {
+  actionBusyDepth++;
+  if (actionBusyDepth === 1) {
+    if (!state._viewLoading) setViewLoading(true);
+    document.body.classList.add("is-action-busy");
+  }
+  const target = btn?.closest?.("button, [role='button']") || btn;
+  if (target && !actionBusyButton) {
+    actionBusyButton = target;
+    target.classList.add("is-loading");
+    target.setAttribute("aria-busy", "true");
+    if ("disabled" in target) target.disabled = true;
+  }
+}
+
+function endActionBusy(btn) {
+  const target = btn?.closest?.("button, [role='button']") || btn;
+  if (target && actionBusyButton === target) {
+    target.classList.remove("is-loading");
+    target.removeAttribute("aria-busy");
+    if ("disabled" in target && !target.dataset.keepDisabled) target.disabled = false;
+    actionBusyButton = null;
+  }
+  actionBusyDepth = Math.max(0, actionBusyDepth - 1);
+  if (actionBusyDepth === 0) {
+    if (!state._viewLoading) setViewLoading(false);
+    document.body.classList.remove("is-action-busy");
+  }
+}
+
+function runWithActionBusy(fn, btn) {
+  beginActionBusy(btn);
+  try {
+    const result = fn();
+    if (result != null && typeof result.then === "function") {
+      return result.finally(() => endActionBusy(btn));
+    }
+    endActionBusy(btn);
+    return result;
+  } catch (err) {
+    endActionBusy(btn);
+    throw err;
+  }
+}
+
+function shouldSkipActionBusy(el) {
+  if (!el) return true;
+  if (el.id === "chat-send" || el.id === "chat-clear") return true;
+  if (el.dataset.toggleUi !== undefined) return true;
+  if (el.dataset.goto !== undefined) return true;
+  if (el.dataset.toggleRun !== undefined) return true;
+  if (el.dataset.memoryTab !== undefined) return true;
+  if (el.dataset.vaultFacet !== undefined) return true;
+  if (el.dataset.vaultAddDoc !== undefined) return true;
+  if (el.dataset.vaultCancelDoc !== undefined) return true;
+  if (el.dataset.removeAttachment !== undefined) return true;
+  if (el.dataset.historyTab !== undefined) return true;
+  if (el.dataset.pickVaultDoc !== undefined) return true;
+  if (el.dataset.cancelEdit !== undefined) return true;
+  if (el.dataset.editWorld !== undefined) return true;
+  if (el.dataset.docsAction === "toggle") return true;
+  return false;
+}
+
 function skeletonLine(width = "72%") {
   return `<span class="skeleton" style="display:block;height:12px;width:${width}"></span>`;
 }
@@ -3528,6 +3596,8 @@ function initContentDelegation() {
       + "#delegate-selected-btn,#btn-logout,#btn-infra-refresh"
     );
     if (!el) return;
+
+    const dispatch = () => {
     if (el.id === "chat-send") return sendChat();
     if (el.id === "chat-clear") {
       chatHistory = [];
@@ -3643,11 +3713,14 @@ function initContentDelegation() {
       setChatSessionId(el.dataset.openChatSession);
       return loadChatFromServer().then(() => goView("chat"));
     }
-    if (el.dataset.newChatSession) {
+    if (el.hasAttribute("data-new-chat-session")) {
       setChatSessionId(null);
       chatHistory = [];
       localStorage.setItem("fos_chat", "[]");
-      return goView("chat");
+      return loadChatSessionsList().then(() => {
+        if (currentView === "chat") render();
+        else goView("chat");
+      });
     }
     if (el.dataset.chatSession) {
       setChatSessionId(el.dataset.chatSession);
@@ -3671,6 +3744,10 @@ function initContentDelegation() {
       if (action === "save") return saveCurrentDocument().catch(e => alert(e.message));
       if (action === "memory") return saveDocumentToMemory().catch(e => alert(e.message));
     }
+    };
+
+    if (shouldSkipActionBusy(el)) return dispatch();
+    return runWithActionBusy(dispatch, el);
   });
 
   root.addEventListener("submit", e => {
@@ -3687,7 +3764,8 @@ function initContentDelegation() {
     };
     if (handlers[form.id]) {
       e.preventDefault();
-      handlers[form.id](form);
+      const submitBtn = form.querySelector('[type="submit"]');
+      runWithActionBusy(() => handlers[form.id](form), submitBtn);
     }
   });
 

@@ -3228,6 +3228,30 @@ td {
   z-index: 20;
 }
 
+body.is-action-busy {
+  cursor: progress;
+}
+
+body.is-action-busy #content {
+  position: relative;
+}
+
+body.is-action-busy #content::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.12);
+  pointer-events: none;
+  z-index: 5;
+}
+
+button.is-loading,
+.button-primary.is-loading,
+.button-outline-on-dark.is-loading {
+  opacity: 0.72;
+  pointer-events: none;
+}
+
 .global-progress__bar {
   display: block;
   height: 100%;
