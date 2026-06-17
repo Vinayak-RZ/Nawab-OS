@@ -36,7 +36,7 @@ def collect_state() -> dict:
     return {
         "about": _safe(about.describe, {}),
         "worlds": _safe(hierarchical_worlds.get_tree, {}),
-        "snapshot": _safe(world_model.build_snapshot, {}),
+        "snapshot": _safe(lambda: world_model.build_snapshot(persist=False), {}),
         "usage": _safe(budget.status, {}),
         "finance": _safe(finance.summary, {}),
         "approvals": _safe(store.list_pending_approvals, []),
@@ -100,6 +100,32 @@ def api_infrastructure_health():
 @bp.route("/state")
 def api_state():
     return jsonify(collect_state())
+
+
+def collect_summary() -> dict:
+    """Lightweight payload for background UI refresh (badges, status bar)."""
+    from agent import store, budget
+    from memory import worlds as hierarchical_worlds
+    from memory.sql_store import get_contacts_needing_followup, get_pending_tasks
+    from dashboard import notifications
+
+    approvals = _safe(store.list_pending_approvals, [])
+    reminders = _safe(store.get_pending_reminders, [])
+    return {
+        "usage": _safe(budget.status, {}),
+        "approvals_pending": len(approvals) if isinstance(approvals, list) else 0,
+        "reminders_pending": len(reminders) if isinstance(reminders, list) else 0,
+        "tasks_open": _safe(lambda: len(get_pending_tasks()), 0),
+        "crm_followups_due": _safe(lambda: len(get_contacts_needing_followup()), 0),
+        "unread_notifications": _safe(notifications.unread_count, 0),
+        "worlds": _safe(hierarchical_worlds.get_tree, {}),
+        "config": _safe(_public_config, {}),
+    }
+
+
+@bp.route("/summary")
+def api_summary():
+    return jsonify(collect_summary())
 
 
 @bp.route("/chat", methods=["POST"])
@@ -704,7 +730,7 @@ def api_world():
     from collections import Counter
     from dashboard import graph_viz
     from memory import worlds as hierarchical_worlds
-    snap = _safe(world_model.build_snapshot, {})
+    snap = _safe(lambda: world_model.build_snapshot(persist=False), {})
     tree = _safe(hierarchical_worlds.get_tree, {})
     cats = Counter(t.category for t in registry.all_tools())
     graph = _safe(
@@ -736,7 +762,7 @@ def api_graph_world():
     from agent import store
     from dashboard import graph_viz
     from memory import worlds as hierarchical_worlds
-    snap = _safe(world_model.build_snapshot, {})
+    snap = _safe(lambda: world_model.build_snapshot(persist=False), {})
     goals = _safe(lambda: store.list_goals("active"), [])
     tree = _safe(hierarchical_worlds.get_tree, {})
     previews = {}

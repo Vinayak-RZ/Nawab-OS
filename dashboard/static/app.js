@@ -4444,11 +4444,29 @@ function showBootError(err) {
   </div>`;
 }
 
-async function refresh() {
+async function refresh(full = false) {
   const prevWorld = state.activeWorldId;
   const prevSpec = state.selectedSpecialist;
   const prevUi = state.ui;
-  state = { ...state, ...(await api("/state")) };
+  if (full || !state.config?.my_name) {
+    state = { ...state, ...(await api("/state")) };
+  } else {
+    const s = await api("/summary");
+    state.usage = s.usage ?? state.usage;
+    state.unread_notifications = s.unread_notifications ?? state.unread_notifications;
+    if (s.worlds) state.worlds = s.worlds;
+    if (s.config) state.config = s.config;
+    state.snapshot = {
+      ...(state.snapshot || {}),
+      approvals_pending: s.approvals_pending ?? state.snapshot?.approvals_pending ?? 0,
+      reminders_pending: s.reminders_pending ?? state.snapshot?.reminders_pending ?? 0,
+      tasks_open: s.tasks_open ?? state.snapshot?.tasks_open ?? 0,
+      crm: {
+        ...(state.snapshot?.crm || {}),
+        followups_due: s.crm_followups_due ?? state.snapshot?.crm?.followups_due ?? 0,
+      },
+    };
+  }
   state.activeWorldId = prevWorld || state.activeWorldId || "root";
   state.selectedSpecialist = prevSpec ?? state.selectedSpecialist ?? "";
   state.ui = prevUi || state.ui;
@@ -4643,7 +4661,7 @@ function scheduleBackgroundRefresh() {
   if (document.hidden) return;
   refreshTimer = setTimeout(async () => {
     try {
-      await refresh();
+      await refresh(false);
       updateBadges();
       updateStatus();
     } catch (e) {
@@ -4768,7 +4786,7 @@ function applyBootUrlParams() {
 
 async function startApp() {
   try {
-    await refresh();
+    await refresh(true);
   } catch (e) {
     showBootError(e);
     return;

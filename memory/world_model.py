@@ -10,15 +10,18 @@ without the founder having to re-explain context every message.
 """
 import json
 import os
+import time
 from datetime import datetime
 
 from agent import store, budget, finance
 from memory.sql_store import get_all_contacts, get_contacts_needing_followup, get_pending_tasks
 
 STATE_PATH = "./data/world_state/latest.json"
+_PERSIST_INTERVAL_S = 60.0
+_last_persist_ts = 0.0
 
 
-def build_snapshot() -> dict:
+def build_snapshot(*, persist: bool = True) -> dict:
     contacts = get_all_contacts()
     by_status = {}
     for c in contacts:
@@ -61,12 +64,17 @@ def build_snapshot() -> dict:
         "usage_today": usage,
     }
 
-    try:
-        os.makedirs(os.path.dirname(STATE_PATH), exist_ok=True)
-        with open(STATE_PATH, "w", encoding="utf-8") as f:
-            json.dump(snap, f, indent=2, default=str)
-    except Exception:
-        pass
+    if persist:
+        global _last_persist_ts
+        now = time.monotonic()
+        if now - _last_persist_ts >= _PERSIST_INTERVAL_S:
+            try:
+                os.makedirs(os.path.dirname(STATE_PATH), exist_ok=True)
+                with open(STATE_PATH, "w", encoding="utf-8") as f:
+                    json.dump(snap, f, indent=2, default=str)
+                _last_persist_ts = now
+            except Exception:
+                pass
     return snap
 
 
