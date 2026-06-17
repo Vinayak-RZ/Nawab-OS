@@ -126,7 +126,52 @@ function renderMessageHtml(m) {
     ).join("");
     return `<div class="msg-md">${md}</div>${arts ? `<div class="msg-artifacts">${arts}</div>` : ""}`;
   }
-  return esc(text);
+  return `<div class="msg-plain">${esc(text)}</div>`;
+}
+
+const MSG_READ_INITIAL_LINES = 15;
+const MSG_READ_EXPAND_LINES = 30;
+
+function msgExpandKey(scope, index) {
+  return `msg:${scope}:${chatSessionId() || "default"}:${index}`;
+}
+
+function msgReadLineLimit(level) {
+  if (level <= 0) return MSG_READ_INITIAL_LINES;
+  if (level === 1) return MSG_READ_INITIAL_LINES + MSG_READ_EXPAND_LINES;
+  return Infinity;
+}
+
+function initMsgReadMore(root) {
+  const scope = root || document.getElementById("content");
+  if (!scope) return;
+  if (!state._msgExpand) state._msgExpand = {};
+
+  scope.querySelectorAll(".msg-read-more-host").forEach(host => {
+    const content = host.querySelector(":scope > .msg-md, :scope > .msg-plain");
+    const btn = host.querySelector(".msg-read-more");
+    if (!content || !btn) return;
+
+    const msgScope = host.dataset.msgScope || "chat";
+    const msgIndex = host.dataset.msgIndex ?? "0";
+    const key = msgExpandKey(msgScope, msgIndex);
+    const level = state._msgExpand[key] || 0;
+    const lineHeight = parseFloat(getComputedStyle(content).lineHeight) || 21;
+    const totalLines = Math.max(1, Math.round(content.scrollHeight / lineHeight));
+    const maxLines = msgReadLineLimit(level);
+
+    btn.dataset.msgReadMore = key;
+    if (maxLines >= totalLines || level >= 2) {
+      content.classList.remove("msg-body--clamped");
+      content.style.maxHeight = "";
+      btn.hidden = true;
+      return;
+    }
+    content.classList.add("msg-body--clamped");
+    content.style.maxHeight = `${maxLines * lineHeight}px`;
+    btn.hidden = false;
+    btn.textContent = "Read more";
+  });
 }
 
 function renderArtifactLinks(artifacts) {
@@ -568,6 +613,7 @@ function patchChatJobBubble(job) {
   if (el && currentView === "chat") {
     el.innerHTML = renderChatMessagesInner();
     window.FOSMarkdown?.enhance?.(el);
+    initMsgReadMore(el);
     el.scrollTop = el.scrollHeight;
   }
   updateLiveStrip({ active: job.status === "running", phase: job.phase });
@@ -579,9 +625,17 @@ function patchChatJobBubble(job) {
 function renderChatMessagesInner() {
   const empty = !chatHistory.length;
   if (empty) return "";
-  return chatHistory.map(m =>
-    `<div class="msg ${m.role}${m.pending ? " is-pending" : ""}"><div class="msg-bubble">${renderMessageHtml(m)}</div></div>`
-  ).join("");
+  return chatHistory.map((m, i) => {
+    if (m.pending) {
+      return `<div class="msg ${m.role} is-pending"><div class="msg-bubble">${renderMessageHtml(m)}</div></div>`;
+    }
+    return `<div class="msg ${m.role}">
+      <div class="msg-bubble msg-read-more-host" data-msg-scope="chat" data-msg-index="${i}">
+        ${renderMessageHtml(m)}
+        <button type="button" class="msg-read-more" hidden>Read more</button>
+      </div>
+    </div>`;
+  }).join("");
 }
 
 async function startAgentJob(message, { direct = false, specId = "" } = {}) {
@@ -1422,8 +1476,7 @@ function renderAgentsTabPanel() {
   if (tab === "runs") return renderAgentRunsTable(runs);
   if (tab === "live") {
     const live = state.live || {};
-    return `${renderLivePanel(live, "agents-tab-live")}
-      <div id="graph-runtime-agents-tab" class="graph-canvas graph-canvas--compact" style="margin-top:var(--space-sm)"></div>`;
+    return renderLivePanel(live, "agents-tab-live");
   }
   if (tab === "tools") return renderAgentsToolsPanel();
   if (tab === "crm") return renderAgentsCrmPanel();
@@ -1595,9 +1648,13 @@ async function drawGraphs() {
     );
   }
   if (currentView === "agents" && state._runtimeGraph) {
-    const el = state.agentsTab === "live" ? "graph-runtime-agents-tab" : "graph-runtime-agents";
-    if (document.getElementById(el)) {
-      renderGraphOrPlaceholder(el, state._runtimeGraph, {}, "Runtime graph appears when an agent is active.");
+    if (document.getElementById("graph-runtime-agents")) {
+      renderGraphOrPlaceholder(
+        "graph-runtime-agents",
+        state._runtimeGraph,
+        { layout: { name: "breadthfirst", directed: true, padding: 16 } },
+        "Runtime graph appears when an agent is active.",
+      );
     }
   }
   if (currentView === "chat" && state._runtimeGraph && document.getElementById("graph-runtime-chat")) {
@@ -1775,7 +1832,7 @@ async function pollLive() {
         state._runtimeGraph = await api("/graph/runtime").catch(() => state._runtimeGraph);
         const nextSig = graphDataSignature(state._runtimeGraph, "runtime");
         if (prevSig !== nextSig) {
-          invalidateGraphCache("graph-runtime-dash", "graph-runtime-agents-tab", "graph-runtime-agents", "graph-runtime-chat");
+          invalidateGraphCache("graph-runtime-dash", "graph-runtime-agents", "graph-runtime-chat");
           drawGraphs();
         }
       }
@@ -2088,7 +2145,14 @@ function renderAgents() {
           <button type="button" class="button-primary" id="delegate-selected-btn">${direct ? `Run ${esc(meta.label)}` : "Send to supervisor"}</button>
           <span class="world-meta mono" data-active-world-label>${esc(activeWorldLabel())}</span>
         </div>
-        ${hasResult ? `<pre class="delegate-result mono" id="delegate-result-selected">${esc(state._delegateResult || "")}</pre>` : ""}
+        ${hasResult ? `<div class="delegate-result-wrap msg-read-more-host driver-card" data-msg-scope="agents-delegate" data-msg-index="0">
+          <div class="msg-md delegate-result-body">${window.FOSMarkdown?.render?.(state._delegateResult || "") || esc(state._delegateResult || "")}</div>
+          <button type="button" class="msg-read-more" hidden>Read more</button>
+        </div>` : ""}
+        <section class="driver-card chat-runtime-panel agents-runtime-panel">
+          <p class="caption-uppercase">Runtime</p>
+          <div id="graph-runtime-agents" class="graph-canvas graph-canvas--compact chat-runtime-panel__graph"></div>
+        </section>
       </section>
 
       <aside class="agents-rail driver-card">
@@ -2807,6 +2871,10 @@ function renderChat() {
             <button type="button" class="button-outline-on-dark button-sm" data-goto="world">Worlds</button>
           </div>
         </div>
+        <section class="driver-card chat-runtime-panel">
+          <p class="caption-uppercase">Runtime</p>
+          <div id="graph-runtime-chat" class="graph-canvas graph-canvas--compact chat-runtime-panel__graph"></div>
+        </section>
       </div>
       <aside class="chat-rail">
         ${renderLivePanel(live, "chat-live-panel")}
@@ -2815,10 +2883,6 @@ function renderChat() {
           <div class="specialist-chips" style="margin-top:var(--space-xxs)">${specs.map(s =>
             `<span class="specialist-chip${currentSpecialistId() === s.id ? " is-selected" : ""}${agentBusy(live, s.id) ? " is-busy" : ""}">${esc(s.label)}</span>`
           ).join("")}</div>
-        </section>
-        <section class="driver-card chat-rail-card">
-          <p class="caption-uppercase">Runtime</p>
-          <div id="graph-runtime-chat" class="graph-canvas graph-canvas--compact" style="margin-top:var(--space-xxs)"></div>
         </section>
         ${recentRuns.length ? `<section class="driver-card chat-rail-card">
           <p class="caption-uppercase">Recent runs</p>
@@ -3557,7 +3621,13 @@ function afterRender(opts = {}) {
     FOSMotion?.runView?.(currentView);
   }
   FOSMotion?.ensureContentVisible?.();
-  window.FOSMarkdown?.enhance?.(document.getElementById("content"));
+  const contentRoot = document.getElementById("content");
+  const enhanceDone = window.FOSMarkdown?.enhance?.(contentRoot);
+  const finishReadMore = () => {
+    if (currentView === "chat" || currentView === "agents") initMsgReadMore(contentRoot);
+  };
+  if (enhanceDone?.then) enhanceDone.then(finishReadMore).catch(finishReadMore);
+  else finishReadMore();
   if (currentView === "documents" && !documentsEditMode) {
     const prev = $("#docs-preview");
     if (prev) void window.FOSMarkdown?.renderInto?.(prev, state._documentDraft ?? "");
@@ -3637,12 +3707,20 @@ function initContentDelegation() {
       + "[data-select-document],[data-docs-action],[data-tag-vault-doc],[data-nudge-index],"
       + "[data-remove-attachment],[data-open-vault-picker],[data-pick-vault-doc],"
       + "[data-crm-followup],[data-crm-wa-thread],[data-reminder-done],[data-reminder-cancel],[data-notif-action],"
+      + "[data-msg-read-more],"
       + "#chat-send,#chat-clear,#memory-search,#toggle-pause,#agents-vault-search,"
       + "#delegate-selected-btn,#btn-logout,#btn-infra-refresh"
     );
     if (!el) return;
 
     const dispatch = () => {
+    if (el.dataset.msgReadMore) {
+      if (!state._msgExpand) state._msgExpand = {};
+      const key = el.dataset.msgReadMore;
+      state._msgExpand[key] = (state._msgExpand[key] || 0) + 1;
+      initMsgReadMore(el.closest(".msg-read-more-host") || root);
+      return;
+    }
     if (el.id === "chat-send") return sendChat();
     if (el.id === "chat-clear") {
       chatHistory = [];

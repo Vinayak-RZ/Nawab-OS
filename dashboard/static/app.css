@@ -755,6 +755,71 @@ body {
   white-space: normal;
 }
 
+.msg-body--clamped {
+  overflow: hidden;
+  position: relative;
+}
+
+.msg-body--clamped::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 2.5em;
+  pointer-events: none;
+  background: linear-gradient(
+    to bottom,
+    transparent,
+    var(--msg-clamp-fade, var(--color-surface-low))
+  );
+}
+
+.msg.user .msg-body--clamped::after {
+  --msg-clamp-fade: color-mix(in srgb, var(--color-primary) 10%, var(--color-canvas-elevated));
+}
+
+.msg-read-more {
+  display: inline-block;
+  margin-top: var(--space-xxs);
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--color-primary);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.msg-read-more:hover {
+  color: var(--color-primary-hover);
+}
+
+.chat-runtime-panel {
+  margin-top: var(--space-sm);
+  padding: var(--space-sm);
+}
+
+.chat-runtime-panel__graph {
+  margin-top: var(--space-xxs);
+  min-height: 140px;
+}
+
+.delegate-result-wrap {
+  margin-top: var(--space-sm);
+  padding: var(--space-sm);
+}
+
+.delegate-result-body {
+  white-space: normal;
+}
+
+.agents-runtime-panel {
+  margin-top: var(--space-sm);
+}
+
 .msg {
   max-width: min(94%, 920px);
   padding: var(--space-sm);
