@@ -68,6 +68,25 @@ if _behind_proxy():
     app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
 
 
+@app.before_request
+def _perf_request_start():
+    from time import perf_counter
+    request._perf_start = perf_counter()  # type: ignore[attr-defined]
+
+
+@app.after_request
+def _perf_response_headers(response):
+    from time import perf_counter
+    start = getattr(request, "_perf_start", None)
+    if start is not None and request.path.startswith("/api/"):
+        ms = int((perf_counter() - start) * 1000)
+        response.headers["X-Response-Time-ms"] = str(ms)
+    if request.path.startswith("/static/"):
+        if "v=" in (request.query_string or b"").decode():
+            response.headers.setdefault("Cache-Control", "public, max-age=31536000, immutable")
+    return response
+
+
 @app.route("/")
 def index():
     return send_from_directory(_STATIC, "index.html")
