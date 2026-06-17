@@ -1,6 +1,11 @@
-/** Load after deferred GSAP / Cytoscape — init motion only (graphs drawn in afterRender). */
+/** Load after deferred vendors — init motion only (graphs drawn in afterRender). */
 (function () {
-  function run() {
+  async function run() {
+    try {
+      if (window.FOSVendors) await window.FOSVendors.ensure(["gsap"]);
+    } catch (e) {
+      console.warn("gsap load failed:", e);
+    }
     if (window.FOSMotion) {
       FOSMotion.init?.();
       FOSMotion.runShell?.();
@@ -10,6 +15,6 @@
       try { drawDashboardCharts(); } catch (e) { console.error(e); }
     }
   }
-  if (document.readyState === "complete") run();
-  else window.addEventListener("load", run);
+  if (document.readyState === "complete") void run();
+  else window.addEventListener("load", () => { void run(); });
 })();

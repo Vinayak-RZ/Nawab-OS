@@ -172,6 +172,14 @@
   }
 
   async function ensureMermaid() {
+    if (!global.mermaid && global.FOSVendors) {
+      try {
+        await global.FOSVendors.ensure(["mermaid"]);
+      } catch (e) {
+        console.warn("[markdown] mermaid load failed", e);
+        return false;
+      }
+    }
     if (!global.mermaid) return false;
     if (!mermaidReady) {
       global.mermaid.initialize({

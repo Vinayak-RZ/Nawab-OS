@@ -1578,8 +1578,14 @@ function switchWorldGraphTab(tab) {
   drawGraphs();
 }
 
-function drawGraphs() {
+async function drawGraphs() {
   if (!window.FOSGraph) return;
+  try {
+    if (window.FOSVendors) await window.FOSVendors.ensure(["cytoscape"]);
+  } catch (e) {
+    console.warn("cytoscape load failed:", e);
+    return;
+  }
   if (currentView === "dashboard" && state._runtimeGraph) {
     renderGraphOrPlaceholder(
       "graph-runtime-dash",
