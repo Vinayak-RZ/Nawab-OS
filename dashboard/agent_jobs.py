@@ -106,6 +106,45 @@ def list_jobs(active_only: bool = False) -> list[dict]:
     return [_public(j) for j in items[:30]]
 
 
+def _enrich_message(message: str, world_id: str | None, attachments: list | None) -> str:
+    if not attachments:
+        return message
+    from integrations import object_storage
+    from memory import vault_documents
+
+    blocks = [message]
+    for att in attachments[:6]:
+        if not isinstance(att, dict):
+            continue
+        if att.get("type") != "vault":
+            continue
+        doc_id = att.get("doc_id") or att.get("id")
+        if not doc_id:
+            continue
+        try:
+            doc_id = int(doc_id)
+        except (TypeError, ValueError):
+            continue
+        doc = vault_documents.get_document(doc_id)
+        if not doc:
+            continue
+        if world_id and doc.get("world_id") != world_id:
+            continue
+        raw = object_storage.get_bytes(doc.get("storage_key") or "")
+        if not raw:
+            continue
+        try:
+            text = raw.decode("utf-8")
+        except UnicodeDecodeError:
+            blocks.append(f"\n\n[ATTACHED FILE: {doc.get('github_path') or doc.get('filename') or doc.get('title')} — binary, not inlined]")
+            continue
+        path = doc.get("github_path") or doc.get("filename") or doc.get("title") or "file"
+        if len(text) > 14000:
+            text = text[:14000] + "\n… (truncated)"
+        blocks.append(f"\n\n[ATTACHED FILE: {path}]\n```\n{text}\n```")
+    return "".join(blocks)
+
+
 def start_job(
     *,
     mode: str,
@@ -114,18 +153,21 @@ def start_job(
     rag_mode: str = "auto",
     specialist: str = "supervisor",
     session_id: str | None = None,
+    attachments: list | None = None,
 ) -> dict:
     job_id = _new_id()
     cancel_event = threading.Event()
+    enriched_message = _enrich_message(message, world_id, attachments)
     job = {
         "id": job_id,
         "status": "queued",
         "mode": mode,
-        "message": message,
+        "message": enriched_message,
         "world_id": world_id,
         "rag_mode": rag_mode,
         "specialist": specialist,
         "session_id": session_id,
+        "attachments": attachments or [],
         "run_id": None,
         "phase": "Queued…",
         "events": [],
