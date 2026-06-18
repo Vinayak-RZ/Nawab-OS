@@ -184,7 +184,7 @@ export function registerViewsAgents(ctx) {
 
   function renderAgentRunsTable(runs) {
     if (!runs.length) {
-      return `<div class="empty-ctx.state"><p class="title-sm">No specialist runs yet</p></div>`;
+      return `<div class="empty-state"><p class="title-sm">No specialist runs yet</p></div>`;
     }
     return `<div class="table-wrap"><table class="data-table">
       <thead><tr><th>Time</th><th>Agent</th><th>Task</th><th>Duration</th><th>Tools</th><th></th></tr></thead>

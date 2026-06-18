@@ -185,7 +185,7 @@ export function registerViewsCrm(ctx) {
       </div>` : "";
   
     const emptyState = !rows ? `
-      <div class="crm-empty-ctx.state">
+      <div class="crm-empty-state">
         <p class="body-md">No company records yet.</p>
         <p class="body-sm muted">${unlinked > 0 ? "Import from contacts above, or add a company manually." : "Add companies manually, or enter company names when adding contacts."}</p>
       </div>` : "";

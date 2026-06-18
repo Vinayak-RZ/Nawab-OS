@@ -3,7 +3,7 @@ export function registerViewsApprovals(ctx) {
   function renderApprovals() {
     const appr = ctx.state.approvals || [];
     if (!appr.length) {
-      return `<section class="driver-card empty-ctx.state"><p class="title-sm">No pending approvals</p></section>`;
+      return `<section class="driver-card empty-state"><p class="title-sm">No pending approvals</p></section>`;
     }
     return `<section class="driver-card">${appr.map(a => `
       <div class="approval-block">

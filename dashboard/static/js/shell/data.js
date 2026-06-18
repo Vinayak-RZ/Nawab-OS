@@ -108,7 +108,9 @@ export function registerShellData(ctx) {
       const q = wid && wid !== "root" ? `?world_id=${encodeURIComponent(wid)}` : "";
       ctx.state._nudges = (await ctx.api(`/nudges${q}`).catch(() => ({ nudges: [] }))).nudges || [];
     }
-    await ctx.loadGraphData();
+    if (["dashboard", "agents", "chat", "world", "memory"].includes(view)) {
+      await ctx.loadGraphData();
+    }
   }
 
   async function refresh(full = false) {
@@ -145,6 +147,7 @@ export function registerShellData(ctx) {
     }
     ctx.updateBadges();
     ctx.updateStatus();
+    if (typeof decorateNavIcons === "function") decorateNavIcons();
   }
 
   async function loadBootExtras() {

@@ -188,7 +188,7 @@ export function registerViewsDashboard(ctx) {
           ${ctx.renderLivePanel(live)}
         </section>
         <section class="driver-card span-4">
-          <p class="caption-uppercase">World ctx.state</p>
+          <p class="caption-uppercase">World state</p>
           <p class="world-meta" style="margin-top:var(--space-xxs)">Updated ${ctx.esc(snap.ts || "now")}</p>
           <dl class="stat-grid" style="margin-top:var(--space-sm)">
             <div class="spec-cell"><dt>Tools</dt><dd>${about.total_tools || 0}</dd></div>

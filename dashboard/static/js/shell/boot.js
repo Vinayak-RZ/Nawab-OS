@@ -132,6 +132,7 @@ export function registerShellBoot(ctx) {
       if (gen === ctx.viewDataLoadGen) ctx.setViewLoading(false);
     }
     ctx.startLivePoll();
+    if (typeof decorateNavIcons === "function") decorateNavIcons();
   }
 
   async function boot() {
