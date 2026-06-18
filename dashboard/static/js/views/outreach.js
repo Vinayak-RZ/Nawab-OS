@@ -17,6 +17,162 @@ export function registerViewsOutreach(ctx) {
     return "setup";
   }
 
+  function outreachBatchSize() {
+    return ctx.state.ui?.crmOutreachBatch || 5;
+  }
+
+  function outreachSavedIds() {
+    return ctx.state.ui?.crmOutreachSelected || [];
+  }
+
+  function outreachDraftIds() {
+    if (!ctx.state.ui) ctx.state.ui = {};
+    if (!Array.isArray(ctx.state.ui.crmOutreachDraft)) {
+      ctx.state.ui.crmOutreachDraft = [...outreachSavedIds()];
+    }
+    return ctx.state.ui.crmOutreachDraft;
+  }
+
+  function outreachSelectionDirty() {
+    const draft = [...outreachDraftIds()].sort((a, b) => a - b).join(",");
+    const saved = [...outreachSavedIds()].sort((a, b) => a - b).join(",");
+    return draft !== saved;
+  }
+
+  function resetOutreachCompanySelection() {
+    if (!ctx.state.ui) ctx.state.ui = {};
+    ctx.state.ui.crmOutreachDraft = [];
+    ctx.state.ui.crmOutreachSelected = [];
+  }
+
+  function ensureOutreachDraftInitialized() {
+    if (!ctx.state.ui) ctx.state.ui = {};
+    if (!Array.isArray(ctx.state.ui.crmOutreachDraft)) {
+      ctx.state.ui.crmOutreachDraft = [...outreachSavedIds()];
+    }
+  }
+
+  function syncOutreachCompanyPickerUi() {
+    const batch = outreachBatchSize();
+    const draft = new Set(outreachDraftIds());
+    const savedN = outreachSavedIds().length;
+    const dirty = outreachSelectionDirty();
+    const root = document.getElementById("outreach-company-picker");
+    if (!root) return;
+
+    root.querySelectorAll("[data-crm-company-toggle]").forEach(inp => {
+      const id = parseInt(inp.dataset.crmCompanyToggle, 10);
+      const on = draft.has(id);
+      inp.checked = on;
+      inp.disabled = !on && draft.size >= batch;
+      inp.closest(".outreach-company-row")?.classList.toggle("is-selected", on);
+    });
+
+    const fill = root.querySelector(".outreach-select-meter__fill");
+    if (fill) fill.style.width = `${Math.min(100, (draft.size / batch) * 100)}%`;
+
+    const draftEl = document.getElementById("outreach-draft-count");
+    if (draftEl) draftEl.textContent = String(draft.size);
+
+    const savedEl = document.getElementById("outreach-saved-count");
+    if (savedEl) savedEl.textContent = String(savedN);
+
+    const dirtyEl = document.getElementById("outreach-selection-dirty");
+    if (dirtyEl) dirtyEl.hidden = !dirty;
+
+    const saveBtn = document.getElementById("outreach-save-companies");
+    if (saveBtn) {
+      saveBtn.disabled = !dirty || draft.size === 0;
+      saveBtn.classList.toggle("is-pulse", dirty && draft.size > 0);
+    }
+
+    const startBtn = document.getElementById("outreach-start-btn");
+    if (startBtn) {
+      const wid = outreachWorldId();
+      const canStart = savedN > 0 && wid !== "root" && !dirty;
+      startBtn.disabled = !canStart;
+      if (dirty) {
+        startBtn.title = "Save your company selection before starting";
+      } else if (!savedN) {
+        startBtn.title = "Select and save at least one company";
+      } else {
+        startBtn.title = "";
+      }
+    }
+
+    const batchHint = document.getElementById("outreach-batch-hint");
+    if (batchHint) {
+      batchHint.textContent = draft.size >= batch
+        ? `Batch limit reached (${batch})`
+        : `Up to ${batch} companies per campaign`;
+    }
+  }
+
+  function toggleOutreachDraftCompany(el) {
+    const id = parseInt(el.dataset.crmCompanyToggle, 10);
+    if (!id) return;
+    if (!ctx.state.ui) ctx.state.ui = {};
+    const batch = outreachBatchSize();
+    const draft = new Set(outreachDraftIds());
+    if (el.checked) {
+      if (draft.size >= batch) {
+        el.checked = false;
+        return;
+      }
+      draft.add(id);
+    } else {
+      draft.delete(id);
+    }
+    ctx.state.ui.crmOutreachDraft = [...draft];
+    syncOutreachCompanyPickerUi();
+  }
+
+  function saveOutreachCompanySelection() {
+    if (!ctx.state.ui) ctx.state.ui = {};
+    const draft = outreachDraftIds();
+    if (!draft.length) return;
+    ctx.state.ui.crmOutreachSelected = [...draft];
+    const wid = outreachWorldId();
+    if (wid) {
+      try {
+        localStorage.setItem(`fos_outreach_sel_${wid}`, JSON.stringify(draft));
+      } catch { /* ignore quota */ }
+    }
+    syncOutreachCompanyPickerUi();
+    const savedEl = document.getElementById("outreach-save-companies");
+    if (savedEl) {
+      savedEl.classList.add("is-saved-flash");
+      setTimeout(() => savedEl?.classList.remove("is-saved-flash"), 600);
+    }
+  }
+
+  function setOutreachBatchSize(size) {
+    if (!ctx.state.ui) ctx.state.ui = {};
+    const batch = parseInt(size, 10) || 5;
+    ctx.state.ui.crmOutreachBatch = batch;
+    let draft = outreachDraftIds();
+    if (draft.length > batch) {
+      ctx.state.ui.crmOutreachDraft = draft.slice(0, batch);
+    }
+    syncOutreachCompanyPickerUi();
+  }
+
+  function filterOutreachCompanyList(query) {
+    const term = (query || "").trim().toLowerCase();
+    document.querySelectorAll("#outreach-company-picker .outreach-company-row").forEach(row => {
+      const hay = (row.dataset.search || "").toLowerCase();
+      row.hidden = !!(term && !hay.includes(term));
+    });
+  }
+
+  function prospectCompaniesForWorld() {
+    const wid = outreachWorldId();
+    return (ctx.state._crmCompanies?.companies || []).filter(c => {
+      if (wid && wid !== "root" && c.world_id && c.world_id !== wid) return false;
+      return c.status === "prospect" || !c.status;
+    });
+  }
+
   function draftApproveDisabledReason(d) {
     if (d.channel === "email") {
       if (!(d.subject || "").trim()) return "Subject required";
@@ -169,24 +325,44 @@ export function registerViewsOutreach(ctx) {
     </section>`;
   }
 
+  function restoreOutreachSelectionForWorld(wid) {
+    if (!ctx.state.ui) ctx.state.ui = {};
+    let saved = [];
+    if (wid) {
+      try {
+        const raw = localStorage.getItem(`fos_outreach_sel_${wid}`);
+        const parsed = raw ? JSON.parse(raw) : [];
+        saved = Array.isArray(parsed) ? parsed.filter(id => Number.isFinite(id)) : [];
+      } catch { /* ignore */ }
+    }
+    ctx.state.ui.crmOutreachSelected = saved;
+    ctx.state.ui.crmOutreachDraft = [...saved];
+  }
+
   function renderOutreachSetupPanel() {
+    ensureOutreachDraftInitialized();
     const campaigns = ctx.state._crmCampaigns?.campaigns || [];
-    const wid = ctx.outreachWorldId();
-    const companies = (ctx.state._crmCompanies?.companies || []).filter(c => {
-      if (wid && wid !== "root" && c.world_id && c.world_id !== wid) return false;
-      return c.status === "prospect" || !c.status;
-    });
-    const batchSize = ctx.state.ui?.crmOutreachBatch || 5;
-    const selected = new Set(ctx.state.ui?.crmOutreachSelected || []);
+    const wid = outreachWorldId();
+    const companies = prospectCompaniesForWorld();
+    const batchSize = outreachBatchSize();
+    const draft = new Set(outreachDraftIds());
+    const savedN = outreachSavedIds().length;
+    const dirty = outreachSelectionDirty();
     const tree = ctx.state.worlds || ctx.state._worldFull?.worlds || {};
     const hasSubWorld = (tree.children || []).length > 0;
+    const loading = ctx.state._crmCompaniesLoading;
+    const loadErr = ctx.state._crmCompaniesError;
 
-    const companyChecks = companies.map(co => {
-      const on = selected.has(co.id);
+    const companyRows = companies.map(co => {
+      const on = draft.has(co.id);
       const contacts = co.contact_count || 0;
-      return `<label class="crm-company-check human-field--checkbox">
-        <input type="checkbox" data-crm-company-toggle="${co.id}" ${on ? "checked" : ""} ${selected.size >= batchSize && !on ? "disabled" : ""}>
-        <span>${ctx.esc(co.name)} <span class="muted">${ctx.esc(co.sector || "")} · ${contacts} contact(s)</span></span>
+      const search = `${co.name || ""} ${co.sector || ""}`.trim();
+      return `<label class="outreach-company-row human-field--checkbox${on ? " is-selected" : ""}" data-search="${ctx.esc(search)}">
+        <input type="checkbox" data-crm-company-toggle="${co.id}" ${on ? "checked" : ""} ${draft.size >= batchSize && !on ? "disabled" : ""}>
+        <span class="outreach-company-row__main">
+          <span class="outreach-company-row__name">${ctx.esc(co.name)}</span>
+          <span class="outreach-company-row__meta muted">${ctx.esc(co.sector || "—")} · ${contacts} contact${contacts === 1 ? "" : "s"}</span>
+        </span>
       </label>`;
     }).join("");
 
@@ -198,49 +374,75 @@ export function registerViewsOutreach(ctx) {
       const badge = c.status === "review" ? "button-primary" : "button-tertiary-text";
       return `<tr>
         <td><button type="button" class="${badge} button-sm" data-crm-campaign="${c.id}">${ctx.esc(c.name)}</button></td>
-        <td><span class="badge-pill">${ctx.esc(c.status)}</span></td>
+        <td><span class="badge-pill badge-pill--${ctx.esc(c.status)}">${ctx.esc(c.status)}</span></td>
         <td class="muted">${ctx.esc((c.created_at || "").slice(0, 10))}</td>
         <td>${c.status === "review" ? `<button type="button" class="button-outline-on-dark button-sm" data-crm-campaign="${c.id}">Continue review</button>` : ""}</td>
       </tr>`;
     }).join("") || '<tr><td colspan="4" class="muted">No campaigns yet</td></tr>';
 
-    const emptyCompanies = !companies.length
+    const companyPicker = !companies.length
       ? `<div class="crm-outreach-empty">
-          <p class="body-md">No prospect companies available for this world.</p>
-          <p class="body-sm muted">Go to CRM Companies and import from your existing contacts, or add companies manually.</p>
+          <p class="body-md">No prospect companies for this world.</p>
+          <p class="body-sm muted">Import from CRM contacts or add companies manually, then return here to build a batch.</p>
           <div class="human-form__actions">
             <button type="button" class="button-primary button-sm" data-outreach-open-crm-companies>Open companies in CRM</button>
           </div>
         </div>`
-      : `<p class="caption-uppercase">Companies (${selected.size}/${batchSize} selected)</p>
-         <div class="crm-company-checklist">${companyChecks}</div>`;
+      : `<div id="outreach-company-picker" class="outreach-company-picker">
+          <div class="outreach-picker-toolbar">
+            <div class="outreach-picker-toolbar__head">
+              <p class="caption-uppercase">Companies</p>
+              <div class="outreach-picker-toolbar__counts">
+                <span class="outreach-count-pill" title="Currently selected (not yet saved)">
+                  <strong id="outreach-draft-count">${draft.size}</strong><span class="muted"> / ${batchSize}</span>
+                </span>
+                <span class="outreach-count-pill outreach-count-pill--saved" title="Saved for this campaign">
+                  <strong id="outreach-saved-count">${savedN}</strong> saved
+                </span>
+                <span id="outreach-selection-dirty" class="outreach-dirty-badge"${dirty ? "" : " hidden"}>Unsaved</span>
+              </div>
+            </div>
+            <div class="outreach-select-meter" role="progressbar" aria-valuenow="${draft.size}" aria-valuemin="0" aria-valuemax="${batchSize}" aria-label="Selection progress">
+              <div class="outreach-select-meter__fill" style="width:${Math.min(100, (draft.size / batchSize) * 100)}%"></div>
+            </div>
+            <p class="body-sm muted" id="outreach-batch-hint">${draft.size >= batchSize ? `Batch limit reached (${batchSize})` : `Pick up to ${batchSize}, then save`}</p>
+            <div class="outreach-picker-toolbar__actions">
+              <input type="search" id="outreach-company-search" class="text-input-on-dark outreach-company-search" placeholder="Filter companies…" autocomplete="off">
+              <button type="button" id="outreach-save-companies" class="button-outline-on-dark button-sm" data-outreach-save-companies ${dirty && draft.size ? "" : "disabled"}>Save selection</button>
+            </div>
+          </div>
+          <div class="outreach-company-list">${companyRows}</div>
+        </div>`;
 
-    return `<section class="driver-card span-12 human-panel">
+    const canStart = savedN > 0 && wid !== "root" && !dirty;
+
+    return `<section class="driver-card span-12 human-panel outreach-setup">
       <div class="human-panel__head">
         <div>
           <h3 class="title-sm">Batch outreach</h3>
-          <p class="body-sm muted">Research, strategy, and personalized drafts — you approve every send.</p>
+          <p class="body-sm muted">Pick companies, save your batch, then start — research and drafts run in the background.</p>
         </div>
       </div>
       ${ctx.renderOutreachSteps("setup")}
-      ${!hasSubWorld ? `<p class="crm-outreach-warn">Create a sub-world under <strong>World</strong> first — outreach requires a venture context for vault research.</p>` : ""}
-      <form class="human-form" id="crm-outreach-form" style="margin-top:var(--space-md)">
-        <div class="human-form__row">
-          <label class="human-field"><span class="caption-uppercase">World (required)</span>
+      ${!hasSubWorld ? `<p class="crm-outreach-warn">Create a sub-world under <strong>World</strong> first — outreach needs a venture context for vault research.</p>` : ""}
+      ${loadErr ? `<p class="crm-draft-error">${ctx.esc(loadErr)}</p>` : ""}
+      <form class="human-form outreach-setup-form" id="crm-outreach-form">
+        <div class="outreach-setup-grid">
+          <label class="human-field"><span class="caption-uppercase">World</span>
             <select class="text-input-on-dark" name="world_id" id="crm-outreach-world">${ctx.renderWorldOptionsForCrm(wid)}</select></label>
           <label class="human-field"><span class="caption-uppercase">Batch size</span>
             <select class="text-input-on-dark" name="batch_size" id="crm-outreach-batch">${batchOpts}</select></label>
         </div>
         <label class="human-field"><span class="caption-uppercase">Outreach brief</span>
           <textarea class="text-input-on-dark" name="brief" rows="3" placeholder="e.g. Indian manufacturing SMBs — energy cost savings, 15-min discovery call, direct tone"></textarea></label>
-        ${emptyCompanies}
-        <div class="human-form__actions">
-          <button type="submit" class="button-primary button-sm" ${selected.size && wid !== "root" ? "" : "disabled"}>
-            Start outreach (${selected.size || 0} companies)
+        ${loading ? `<p class="muted body-sm">Loading companies…</p>` : companyPicker}
+        <div class="human-form__actions outreach-setup-actions">
+          <button type="submit" id="outreach-start-btn" class="button-primary" ${canStart ? "" : "disabled"}${dirty ? ' title="Save your company selection before starting"' : !savedN ? ' title="Select and save at least one company"' : ""}>
+            Start outreach${savedN ? ` (${savedN} companies)` : ""}
           </button>
         </div>
       </form>
-      <section style="margin-top:var(--space-lg)">
+      <section class="outreach-history">
         <p class="caption-uppercase">Recent campaigns</p>
         <div class="table-wrap"><table><thead><tr><th>Campaign</th><th>Status</th><th>Created</th><th></th></tr></thead><tbody>${history}</tbody></table></div>
       </section>
@@ -294,6 +496,15 @@ export function registerViewsOutreach(ctx) {
       ]);
       ctx.state._crmCompanies = companies;
       ctx.state._crmCampaigns = campaigns;
+      if (!campaignId) {
+        if (!Array.isArray(ctx.state.ui.crmOutreachDraft)) {
+          if (outreachSavedIds().length) {
+            ctx.state.ui.crmOutreachDraft = [...outreachSavedIds()];
+          } else {
+            restoreOutreachSelectionForWorld(wid);
+          }
+        }
+      }
       if (campaignId) {
         ctx.state.ui.crmCampaignId = campaignId;
         const [detail, review] = await Promise.all([
@@ -322,9 +533,10 @@ export function registerViewsOutreach(ctx) {
     const world_id = (fd.get("world_id") || "").toString().trim();
     const batch_size = parseInt(fd.get("batch_size") || "5", 10) || 5;
     const brief = (fd.get("brief") || "").toString().trim();
-    const company_ids = ctx.state.ui?.crmOutreachSelected || [];
+    const company_ids = outreachSavedIds();
+    if (outreachSelectionDirty()) return alert("Save your company selection before starting.");
     if (!world_id || world_id === "root") return alert("Select a sub-world for outreach (not Main world).");
-    if (!company_ids.length) return alert("Select at least one company.");
+    if (!company_ids.length) return alert("Select and save at least one company.");
     if (!brief) return alert("Add a brief so the agent knows what kind of message to write.");
     try {
       const created = await ctx.api("/crm/outreach/campaigns", {
@@ -334,6 +546,8 @@ export function registerViewsOutreach(ctx) {
       await ctx.api(`/crm/outreach/campaigns/${created.campaign_id}/start`, { method: "POST" });
       if (!ctx.state.ui) ctx.state.ui = {};
       ctx.state.ui.crmOutreachSelected = [];
+      ctx.state.ui.crmOutreachDraft = [];
+      try { localStorage.removeItem(`fos_outreach_sel_${world_id}`); } catch { /* ignore */ }
       ctx.goView("outreach", { params: { campaignId: created.campaign_id } });
       ctx.pollCrmOutreachJob(created.campaign_id);
     } catch (e) { alert(e.message); }
@@ -376,7 +590,6 @@ export function registerViewsOutreach(ctx) {
     ctx.state._crmOutreachPollId = null;
     if (ctx.state.ui) {
       ctx.state.ui.crmCampaignId = null;
-      ctx.state.ui.crmOutreachSelected = [];
     }
     ctx.state._crmCampaignReview = null;
     ctx.state._crmCampaignDetail = null;
@@ -385,19 +598,7 @@ export function registerViewsOutreach(ctx) {
   }
 
   function toggleCrmOutreachCompany(el) {
-    const id = parseInt(el.dataset.crmCompanyToggle, 10);
-    if (!id) return;
-    if (!ctx.state.ui) ctx.state.ui = {};
-    const batch = ctx.state.ui.crmOutreachBatch || 5;
-    const sel = new Set(ctx.state.ui.crmOutreachSelected || []);
-    if (el.checked) {
-      if (sel.size >= batch) { el.checked = false; return; }
-      sel.add(id);
-    } else {
-      sel.delete(id);
-    }
-    ctx.state.ui.crmOutreachSelected = [...sel];
-    ctx.render();
+    toggleOutreachDraftCompany(el);
   }
 
   async function skipCrmCompany(companyId) {
@@ -429,7 +630,6 @@ export function registerViewsOutreach(ctx) {
       if (res.error) return alert(res.error);
       const cid = ctx.state.ui?.crmCampaignId;
       if (cid) ctx.state._crmCampaignReview = await ctx.api(`/crm/outreach/campaigns/${cid}/review`);
-      await ctx.loadOutreachData();
       ctx.render();
     } catch (e) { alert(e.message); }
   }
@@ -459,6 +659,13 @@ export function registerViewsOutreach(ctx) {
   ctx.pollCrmOutreachJob = pollCrmOutreachJob;
   ctx.openCrmCampaignReview = openCrmCampaignReview;
   ctx.closeCrmCampaignReview = closeCrmCampaignReview;
+  ctx.toggleOutreachDraftCompany = toggleOutreachDraftCompany;
+  ctx.saveOutreachCompanySelection = saveOutreachCompanySelection;
+  ctx.setOutreachBatchSize = setOutreachBatchSize;
+  ctx.filterOutreachCompanyList = filterOutreachCompanyList;
+  ctx.syncOutreachCompanyPickerUi = syncOutreachCompanyPickerUi;
+  ctx.restoreOutreachSelectionForWorld = restoreOutreachSelectionForWorld;
+  ctx.resetOutreachCompanySelection = resetOutreachCompanySelection;
   ctx.toggleCrmOutreachCompany = toggleCrmOutreachCompany;
   ctx.skipCrmCompany = skipCrmCompany;
   ctx.saveCrmDraftEdits = saveCrmDraftEdits;

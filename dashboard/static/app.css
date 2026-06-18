@@ -3720,6 +3720,149 @@ button.is-loading,
   margin: var(--space-sm) 0;
 }
 
+.outreach-setup-form {
+  margin-top: var(--space-md);
+}
+.outreach-setup-grid {
+  display: grid;
+  gap: var(--space-md);
+  grid-template-columns: 1fr;
+}
+@media (min-width: 640px) {
+  .outreach-setup-grid {
+    grid-template-columns: 1fr minmax(140px, 180px);
+  }
+}
+.outreach-company-picker {
+  margin: var(--space-md) 0;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  background: color-mix(in srgb, var(--color-bg) 92%, var(--color-fg));
+}
+.outreach-picker-toolbar {
+  padding: var(--space-md);
+  border-bottom: 1px solid var(--color-border);
+  display: grid;
+  gap: var(--space-sm);
+}
+.outreach-picker-toolbar__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: var(--space-sm);
+  flex-wrap: wrap;
+}
+.outreach-picker-toolbar__counts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-xs);
+}
+.outreach-count-pill {
+  font-size: 0.8125rem;
+  padding: 0.2rem 0.55rem;
+  border-radius: 999px;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg);
+}
+.outreach-count-pill--saved {
+  border-style: dashed;
+}
+.outreach-dirty-badge {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 0.15rem 0.45rem;
+  border-radius: 999px;
+  color: var(--color-accent);
+  border: 1px solid color-mix(in srgb, var(--color-accent) 45%, var(--color-border));
+  background: color-mix(in srgb, var(--color-accent) 10%, transparent);
+}
+.outreach-select-meter {
+  height: 4px;
+  background: var(--color-border);
+  border-radius: 999px;
+  overflow: hidden;
+}
+.outreach-select-meter__fill {
+  height: 100%;
+  background: var(--color-accent);
+  transition: width 0.2s ease;
+}
+.outreach-picker-toolbar__actions {
+  display: grid;
+  gap: var(--space-sm);
+  grid-template-columns: 1fr;
+}
+@media (min-width: 520px) {
+  .outreach-picker-toolbar__actions {
+    grid-template-columns: 1fr auto;
+    align-items: center;
+  }
+}
+.outreach-company-search {
+  min-width: 0;
+}
+.outreach-company-list {
+  display: grid;
+  gap: 0;
+  max-height: min(320px, 42vh);
+  overflow: auto;
+}
+.outreach-company-row {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-md);
+  margin: 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--color-border) 70%, transparent);
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+.outreach-company-row:last-child {
+  border-bottom: none;
+}
+.outreach-company-row:hover {
+  background: color-mix(in srgb, var(--color-fg) 4%, transparent);
+}
+.outreach-company-row.is-selected {
+  background: color-mix(in srgb, var(--color-accent) 8%, transparent);
+}
+.outreach-company-row__main {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.outreach-company-row__name {
+  font-size: 0.9375rem;
+  line-height: 1.3;
+}
+.outreach-company-row__meta {
+  font-size: 0.8125rem;
+}
+.outreach-setup-actions {
+  margin-top: var(--space-md);
+  padding-top: var(--space-md);
+  border-top: 1px solid var(--color-border);
+}
+.outreach-history {
+  margin-top: var(--space-lg);
+  padding-top: var(--space-md);
+  border-top: 1px solid var(--color-border);
+}
+#outreach-save-companies.is-pulse:not(:disabled) {
+  animation: outreach-save-pulse 1.4s ease-in-out infinite;
+}
+#outreach-save-companies.is-saved-flash {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+@keyframes outreach-save-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.72; }
+}
+
 .reminder-row__actions {
   display: flex;
   gap: 4px;

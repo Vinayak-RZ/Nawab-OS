@@ -98,6 +98,9 @@ export function registerShellNavigation(ctx) {
       if (prev) void window.FOSMarkdown?.renderInto?.(prev, ctx.state._documentDraft ?? "");
     }
     ctx.startWhatsappPollIfNeeded();
+    if (ctx.currentView === "outreach" && ctx.outreachStep?.() === "setup") {
+      ctx.syncOutreachCompanyPickerUi?.();
+    }
   }
 
   function updateBadges() {

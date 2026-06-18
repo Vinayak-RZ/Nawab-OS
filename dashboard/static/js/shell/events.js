@@ -21,7 +21,7 @@ export function registerShellEvents(ctx) {
         + "[data-crm-followup],[data-crm-wa-thread],[data-crm-tab],[data-crm-company-detail],[data-crm-company-close],"
         + "[data-crm-import-companies],[data-crm-reload],"
         + "[data-crm-outreach-start],[data-crm-campaign],[data-crm-draft-approve],[data-crm-draft-skip],[data-crm-company-toggle],"
-        + "[data-crm-skip-company],[data-crm-outreach-refresh],[data-crm-outreach-back],[data-outreach-open-crm-companies],"
+        + "[data-crm-skip-company],[data-crm-outreach-refresh],[data-crm-outreach-back],[data-outreach-open-crm-companies],[data-outreach-save-companies],"
         + "[data-msg-read-more],"
         + "#chat-send,#chat-clear,#memory-search,#toggle-pause,#agents-vault-search,"
         + "#delegate-selected-btn,#btn-logout,#btn-infra-refresh"
@@ -142,6 +142,7 @@ export function registerShellEvents(ctx) {
         if (cid) return ctx.pollCrmOutreachJob(cid, true);
         return ctx.loadOutreachData().then(() => ctx.render());
       }
+      if (el.hasAttribute("data-outreach-save-companies")) return ctx.saveOutreachCompanySelection();
       if (el.hasAttribute("data-outreach-open-crm-companies")) {
         if (!ctx.state.ui) ctx.state.ui = {};
         ctx.state.ui.crmTab = "companies";
@@ -261,21 +262,15 @@ export function registerShellEvents(ctx) {
         ctx.updateCrmWhatsapp(e.target.dataset.crmWhatsapp, e.target.checked);
       }
       if (e.target.matches("[data-crm-company-toggle]")) {
-        ctx.toggleCrmOutreachCompany(e.target);
+        ctx.toggleOutreachDraftCompany(e.target);
       }
       if (e.target.id === "crm-outreach-batch") {
-        if (!ctx.state.ui) ctx.state.ui = {};
-        ctx.state.ui.crmOutreachBatch = parseInt(e.target.value, 10) || 5;
-        const sel = ctx.state.ui.crmOutreachSelected || [];
-        if (sel.length > ctx.state.ui.crmOutreachBatch) {
-          ctx.state.ui.crmOutreachSelected = sel.slice(0, ctx.state.ui.crmOutreachBatch);
-        }
-        ctx.render();
+        ctx.setOutreachBatchSize(e.target.value);
       }
       if (e.target.id === "crm-outreach-world") {
         if (!ctx.state.ui) ctx.state.ui = {};
         ctx.state.ui.crmOutreachWorld = e.target.value;
-        ctx.state.ui.crmOutreachSelected = [];
+        ctx.restoreOutreachSelectionForWorld(e.target.value);
         ctx.loadOutreachData().then(() => ctx.render());
       }
     });
@@ -296,6 +291,9 @@ export function registerShellEvents(ctx) {
     });
   
     root.addEventListener("input", e => {
+      if (e.target.id === "outreach-company-search") {
+        ctx.filterOutreachCompanyList(e.target.value);
+      }
       if (e.target.matches(".crm-draft-body[data-channel='whatsapp']")) {
         const id = e.target.dataset.draftId;
         const counter = document.querySelector(`.crm-wa-count[data-draft-id="${id}"]`);
