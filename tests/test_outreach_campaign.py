@@ -12,12 +12,15 @@ def _mock_world(wid):
 
 @pytest.fixture
 def isolated_db(monkeypatch):
+    import memory.sql_store as sql_store
+
     with tempfile.TemporaryDirectory() as tmp:
         db_path = os.path.join(tmp, "test.db")
-        monkeypatch.setenv("FOUNDER_OS_DB", db_path)
-        import importlib
-        mod = importlib.reload(__import__("memory.sql_store", fromlist=["sql_store"]))
-        yield mod
+        monkeypatch.setattr(sql_store, "DB_PATH", db_path)
+        if hasattr(sql_store._local, "conn"):
+            del sql_store._local.conn
+        sql_store.init_db()
+        yield sql_store
 
 
 def test_create_campaign_validates_batch(isolated_db):
@@ -74,7 +77,7 @@ def test_campaign_pipeline_mocks_llm(isolated_db):
 
         async def _run():
             with patch.object(camp, "web_search", return_value=[{"title": "News", "snippet": "Beta expanded"}]):
-                with patch("llm.router.complete", new_callable=AsyncMock) as mock_llm:
+                with patch.object(camp, "complete", new_callable=AsyncMock) as mock_llm:
                     mock_llm.return_value = json.dumps({
                         "cohort_label": "Mfg SMBs",
                         "framing_rules": ["lead with cost"],
