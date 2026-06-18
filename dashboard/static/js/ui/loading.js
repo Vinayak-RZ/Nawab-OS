@@ -23,7 +23,8 @@ export function registerUiLoading(ctx) {
   function beginActionBusy(btn) {
     ctx.actionBusyDepth++;
     if (ctx.actionBusyDepth === 1) {
-      if (!ctx.state._viewLoading) ctx.setViewLoading(true);
+      ctx._actionOwnedLoading = !ctx.state._viewLoading;
+      if (ctx._actionOwnedLoading) ctx.setViewLoading(true);
       document.body.classList.add("is-action-busy");
     }
     const target = btn?.closest?.("button, [role='button']") || btn;
@@ -36,16 +37,19 @@ export function registerUiLoading(ctx) {
   }
 
   function endActionBusy(btn) {
-    const target = btn?.closest?.("button, [role='button']") || btn;
-    if (target && ctx.actionBusyButton === target) {
-      target.classList.remove("is-loading");
-      target.removeAttribute("aria-busy");
-      if ("disabled" in target && !target.dataset.keepDisabled) target.disabled = false;
+    const tracked = ctx.actionBusyButton;
+    if (tracked) {
+      tracked.classList.remove("is-loading");
+      tracked.removeAttribute("aria-busy");
+      if ("disabled" in tracked && !tracked.dataset.keepDisabled) tracked.disabled = false;
       ctx.actionBusyButton = null;
     }
     ctx.actionBusyDepth = Math.max(0, ctx.actionBusyDepth - 1);
     if (ctx.actionBusyDepth === 0) {
-      if (!ctx.state._viewLoading) ctx.setViewLoading(false);
+      if (ctx._actionOwnedLoading) {
+        ctx.setViewLoading(false);
+        ctx._actionOwnedLoading = false;
+      }
       document.body.classList.remove("is-action-busy");
     }
   }
@@ -81,6 +85,8 @@ export function registerUiLoading(ctx) {
     if (el.dataset.cancelEdit !== undefined) return true;
     if (el.dataset.editWorld !== undefined) return true;
     if (el.dataset.docsAction === "toggle") return true;
+    if (el.hasAttribute("data-outreach-save-companies")) return true;
+    if (el.matches?.("[data-crm-company-toggle]")) return true;
     return false;
   }
 

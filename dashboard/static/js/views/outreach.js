@@ -4,6 +4,20 @@ export function registerViewsOutreach(ctx) {
     return ctx.state.ui?.crmOutreachWorld || ctx.currentWorldId();
   }
 
+  function outreachCampaignId() {
+    const fromRoute = ctx.routeParams?.campaignId;
+    const fromUi = ctx.state.ui?.crmCampaignId;
+    return fromRoute || fromUi || null;
+  }
+
+  async function refreshOutreachReview() {
+    const cid = outreachCampaignId();
+    if (!cid) return;
+    ctx.state._crmCampaignReview = await ctx.api(`/crm/outreach/campaigns/${cid}/review`);
+    ctx.render();
+    ctx.fitAllOutreachTextareas?.();
+  }
+
   function outreachStep() {
     const review = ctx.state._crmCampaignReview;
     const camp = review?.campaign;
@@ -335,7 +349,7 @@ export function registerViewsOutreach(ctx) {
       ${co ? `<div class="crm-company-review driver-card outreach-company-review">
         <div class="human-panel__head">
           <h4 class="title-sm">${ctx.esc(coLabel)}</h4>
-          <button type="button" class="button-outline-on-dark button-sm" data-crm-skip-company="${co.company_id}">Skip company</button>
+          <button type="button" class="button-outline-on-dark button-sm" data-crm-skip-company="${co.company_id ?? review.current_company_id ?? ""}">Skip company</button>
         </div>
         <p class="body-sm muted">${ctx.esc(research.sector || co.sector || "")}</p>
         ${research.crm_research_summary ? `<p class="body-sm">${ctx.esc(String(research.crm_research_summary).slice(0, 400))}</p>` : ""}
@@ -631,13 +645,15 @@ export function registerViewsOutreach(ctx) {
   }
 
   async function skipCrmCompany(companyId) {
-    const cid = ctx.state.ui?.crmCampaignId;
-    if (!cid || !companyId) return;
-    if (!confirm("Skip all pending messages for this company?")) return;
+    const cid = outreachCampaignId();
+    const coId = parseInt(companyId, 10);
+    if (!cid || !coId) {
+      alert("Could not skip company — campaign context missing. Try reopening the campaign from Recent campaigns.");
+      return;
+    }
     try {
-      await ctx.api(`/crm/outreach/campaigns/${cid}/companies/${companyId}/skip`, { method: "POST" });
-      ctx.state._crmCampaignReview = await ctx.api(`/crm/outreach/campaigns/${cid}/review`);
-      ctx.render();
+      await ctx.api(`/crm/outreach/campaigns/${cid}/companies/${coId}/skip`, { method: "POST" });
+      await ctx.refreshOutreachReview();
     } catch (e) { alert(e.message); }
   }
 
@@ -657,9 +673,7 @@ export function registerViewsOutreach(ctx) {
       await ctx.saveCrmDraftEdits(draftId);
       const res = await ctx.api(`/crm/outreach/drafts/${draftId}/approve-send`, { method: "POST" });
       if (res.error) return alert(res.error);
-      const cid = ctx.state.ui?.crmCampaignId;
-      if (cid) ctx.state._crmCampaignReview = await ctx.api(`/crm/outreach/campaigns/${cid}/review`);
-      ctx.render();
+      await ctx.refreshOutreachReview();
     } catch (e) { alert(e.message); }
   }
 
@@ -667,13 +681,13 @@ export function registerViewsOutreach(ctx) {
     if (!draftId) return;
     try {
       await ctx.api(`/crm/outreach/drafts/${draftId}/skip`, { method: "POST" });
-      const cid = ctx.state.ui?.crmCampaignId;
-      if (cid) ctx.state._crmCampaignReview = await ctx.api(`/crm/outreach/campaigns/${cid}/review`);
-      ctx.render();
+      await ctx.refreshOutreachReview();
     } catch (e) { alert(e.message); }
   }
 
   ctx.outreachWorldId = outreachWorldId;
+  ctx.outreachCampaignId = outreachCampaignId;
+  ctx.refreshOutreachReview = refreshOutreachReview;
   ctx.outreachStep = outreachStep;
   ctx.draftApproveDisabledReason = draftApproveDisabledReason;
   ctx.renderOutreachSteps = renderOutreachSteps;

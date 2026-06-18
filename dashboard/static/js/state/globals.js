@@ -46,6 +46,7 @@ export function registerGlobals(ctx) {
   ctx.graphDrawCache = {};
   ctx.actionBusyDepth = 0;
   ctx.actionBusyButton = null;
+  ctx._actionOwnedLoading = false;
   ctx.refreshTimer = null;
 
   ctx.loadSelectedSpecialist = loadSelectedSpecialist;

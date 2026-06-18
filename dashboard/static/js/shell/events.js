@@ -161,9 +161,12 @@ export function registerShellEvents(ctx) {
       if (el.dataset.crmWaThread) return ctx.loadCrmWaThread(el.dataset.crmWaThread);
       if (el.dataset.crmCampaign) return ctx.openCrmCampaignReview(el.dataset.crmCampaign);
       if (el.hasAttribute("data-crm-outreach-back")) return ctx.closeCrmCampaignReview();
-      if (el.dataset.crmDraftApprove) return ctx.approveCrmDraft(el.dataset.crmDraftApprove);
-      if (el.dataset.crmDraftSkip) return ctx.skipCrmDraft(el.dataset.crmDraftSkip);
-      if (el.dataset.crmSkipCompany) return ctx.skipCrmCompany(el.dataset.crmSkipCompany);
+      if (el.dataset.crmDraftApprove) return ctx.runWithActionBusy(() => ctx.approveCrmDraft(el.dataset.crmDraftApprove), el);
+      if (el.dataset.crmDraftSkip) return ctx.runWithActionBusy(() => ctx.skipCrmDraft(el.dataset.crmDraftSkip), el);
+      if (el.dataset.crmSkipCompany) {
+        if (!confirm("Skip all pending messages for this company?")) return;
+        return ctx.runWithActionBusy(() => ctx.skipCrmCompany(el.dataset.crmSkipCompany), el);
+      }
       if (el.dataset.reminderDone) return ctx.updateReminderStatus(el.dataset.reminderDone, "done");
       if (el.dataset.reminderCancel) return ctx.updateReminderStatus(el.dataset.reminderCancel, "cancelled");
       if (el.dataset.notifAction) return ctx.openNotificationAction(el.dataset.notifAction, el.dataset.notifId);
