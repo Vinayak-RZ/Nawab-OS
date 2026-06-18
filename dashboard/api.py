@@ -430,6 +430,104 @@ def api_company_contacts(cid):
     return jsonify({"contacts": _safe(lambda: get_company_contacts(cid), [])})
 
 
+@bp.route("/crm/outreach/campaigns", methods=["GET"])
+def api_outreach_campaigns_list():
+    from memory.sql_store import list_campaigns
+    world_id = (request.args.get("world_id") or "").strip() or None
+    return jsonify({"campaigns": _safe(lambda: list_campaigns(world_id=world_id), [])})
+
+
+@bp.route("/crm/outreach/campaigns", methods=["POST"])
+def api_outreach_campaigns_create():
+    from outreach import campaign as camp_mod
+    data = request.get_json(silent=True) or {}
+    result = camp_mod.create_campaign(
+        world_id=(data.get("world_id") or "").strip(),
+        company_ids=data.get("company_ids") or [],
+        batch_size=data.get("batch_size") or 5,
+        brief=(data.get("brief") or "").strip(),
+        name=(data.get("name") or "").strip() or None,
+    )
+    if result.get("error"):
+        return jsonify(result), 400
+    return jsonify(result)
+
+
+@bp.route("/crm/outreach/campaigns/<int:cid>")
+def api_outreach_campaign_detail(cid):
+    from memory.sql_store import get_campaign, list_campaign_drafts
+    from outreach.campaign import get_review_queue
+    camp = get_campaign(cid)
+    if not camp:
+        return jsonify({"error": "campaign not found"}), 404
+    review = _safe(lambda: get_review_queue(cid), {})
+    return jsonify({
+        "campaign": camp,
+        "review": review,
+        "drafts": _safe(lambda: list_campaign_drafts(cid), []),
+    })
+
+
+@bp.route("/crm/outreach/campaigns/<int:cid>/start", methods=["POST"])
+def api_outreach_campaign_start(cid):
+    from memory.sql_store import get_campaign
+    from outreach.campaign import start_campaign_job
+    if not get_campaign(cid):
+        return jsonify({"error": "campaign not found"}), 404
+    job = start_campaign_job(cid)
+    return jsonify({"job": job, "campaign_id": cid})
+
+
+@bp.route("/crm/outreach/campaigns/<int:cid>/review")
+def api_outreach_campaign_review(cid):
+    from outreach.campaign import get_review_queue
+    review = _safe(lambda: get_review_queue(cid), {})
+    if review.get("error"):
+        return jsonify(review), 404
+    return jsonify(review)
+
+
+@bp.route("/crm/outreach/drafts/<int:did>", methods=["PATCH"])
+def api_outreach_draft_update(did):
+    from memory.sql_store import get_draft, update_draft
+    data = request.get_json(silent=True) or {}
+    if not get_draft(did):
+        return jsonify({"error": "draft not found"}), 404
+    allowed = {"subject", "body"}
+    payload = {k: v for k, v in data.items() if k in allowed}
+    if not payload:
+        return jsonify({"error": "no valid fields"}), 400
+    update_draft(did, **payload)
+    return jsonify({"ok": True, "id": did})
+
+
+@bp.route("/crm/outreach/drafts/<int:did>/approve-send", methods=["POST"])
+def api_outreach_draft_approve_send(did):
+    from outreach.campaign import approve_and_send
+    result = approve_and_send(did)
+    if result.get("error"):
+        return jsonify(result), 400
+    return jsonify(result)
+
+
+@bp.route("/crm/outreach/campaigns/<int:cid>/stats")
+def api_outreach_campaign_stats(cid):
+    from outreach.tracker import get_campaign_status
+    stats = _safe(lambda: get_campaign_status(cid), {})
+    if stats.get("error"):
+        return jsonify(stats), 404
+    return jsonify(stats)
+
+
+@bp.route("/crm/outreach/drafts/<int:did>/skip", methods=["POST"])
+def api_outreach_draft_skip(did):
+    from outreach.campaign import skip_draft
+    result = skip_draft(did)
+    if result.get("error"):
+        return jsonify(result), 400
+    return jsonify(result)
+
+
 @bp.route("/crm/contacts/<int:cid>", methods=["PATCH"])
 def api_contacts_update(cid):
     from memory.sql_store import update_contact, get_contact

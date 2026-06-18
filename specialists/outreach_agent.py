@@ -86,6 +86,85 @@ Only output JSON."""}
     draft["company_name"] = (contact.get("company") if contact else None) or company_name or ""
     return draft
 
+
+async def draft_campaign_strategy(research_batch: list, brief: str = "") -> dict:
+    """One LLM call over cohort research → strategy JSON."""
+    payload = json.dumps({"brief": brief, "companies": research_batch}, indent=2)[:10000]
+    messages = [
+        {"role": "system", "content": f"B2B outreach strategist for {config.company_name}."},
+        {"role": "user", "content": f"""Cohort research:
+{payload}
+JSON only: cohort_label, awareness_stage, lead_type, framing_rules, email_tone, whatsapp_tone"""},
+    ]
+    raw = await complete(messages, task_type="analysis")
+    clean = raw.strip().replace("```json", "").replace("```", "").strip()
+    try:
+        return json.loads(clean)
+    except Exception:
+        return {"cohort_label": "Outreach", "framing_rules": [clean[:400]]}
+
+
+def _skill_block() -> str:
+    try:
+        from agent.skill_loader import load_skill_bodies
+        return load_skill_bodies(["b2b-cold-email", "whatsapp-outreach", "direct-response-copy"], max_chars=4000)
+    except Exception:
+        return ""
+
+
+async def draft_email_for_campaign(contact_id: int, strategy: dict = None, brief: str = "") -> dict:
+    contact = get_contact(contact_id)
+    if not contact:
+        return {"error": "contact not found", "subject": "", "body": ""}
+    strategy = strategy or {}
+    skills = _skill_block()
+    messages = [
+        {"role": "system", "content": f"""You write B2B cold email for {config.my_name} at {config.company_name}.
+{config.my_one_liner}
+Rules: max 5 sentences, one CTA, no fabricated proof, concrete language.
+{skills}"""},
+        {"role": "user", "content": f"""Strategy: {json.dumps(strategy)[:2000]}
+Brief: {brief}
+Contact: {contact.get('name')} — {contact.get('role')} @ {contact.get('company')}
+Notes: {contact.get('notes') or ''}
+
+JSON: subject, body, personalization_notes"""},
+    ]
+    raw = await complete(messages, task_type="outreach")
+    clean = raw.strip().replace("```json", "").replace("```", "").strip()
+    try:
+        draft = json.loads(clean)
+    except Exception:
+        draft = {"subject": "Quick question", "body": raw[:800], "personalization_notes": ""}
+    draft["to_email"] = contact.get("email")
+    return draft
+
+
+async def draft_whatsapp_for_campaign(contact_id: int, strategy: dict = None, brief: str = "") -> dict:
+    contact = get_contact(contact_id)
+    if not contact:
+        return {"error": "contact not found", "body": ""}
+    strategy = strategy or {}
+    skills = _skill_block()
+    messages = [
+        {"role": "system", "content": f"""WhatsApp opener for {config.my_name} at {config.company_name}.
+Max 280 chars. Human, specific, no spam patterns.
+{skills}"""},
+        {"role": "user", "content": f"""Strategy: {json.dumps(strategy)[:1500]}
+Brief: {brief}
+Contact: {contact.get('name')} @ {contact.get('company')}
+
+JSON: body, personalization_notes"""},
+    ]
+    raw = await complete(messages, task_type="outreach", max_tokens=200)
+    clean = raw.strip().replace("```json", "").replace("```", "").strip()
+    try:
+        draft = json.loads(clean)
+    except Exception:
+        draft = {"body": raw[:280], "personalization_notes": ""}
+    draft["body"] = (draft.get("body") or "")[:300]
+    return draft
+
 async def draft_linkedin_message(contact_name: str, company_name: str = "", context: str = "") -> str:
     """Draft a short LinkedIn connection request note (300 char limit)."""
     messages = [

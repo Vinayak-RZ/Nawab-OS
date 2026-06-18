@@ -341,12 +341,13 @@ def get_outreach_for_contact(contact_id: int, channel: str = None, limit: int = 
 # ── OUTREACH LOG ──────────────────────────────────────────────────────────────
 
 def log_outreach(contact_id: int, channel: str, direction: str,
-                 subject: str = None, body: str = None, status: str = "sent") -> int:
+                 subject: str = None, body: str = None, status: str = "sent",
+                 campaign_id: int = None) -> int:
     conn = get_conn()
     c = conn.cursor()
-    c.execute("""INSERT INTO outreach_log (contact_id, channel, direction, subject, body, status, sent_at)
-                 VALUES (?, ?, ?, ?, ?, ?, ?)""",
-              (contact_id, channel, direction, subject, body, status, datetime.now().isoformat()))
+    c.execute("""INSERT INTO outreach_log (contact_id, channel, direction, subject, body, status, sent_at, campaign_id)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+              (contact_id, channel, direction, subject, body, status, datetime.now().isoformat(), campaign_id))
     conn.commit()
     log_id = c.lastrowid
     conn.close()
@@ -455,11 +456,168 @@ def search_companies(query: str) -> list:
     conn = get_conn()
     q = f"%{query}%"
     rows = conn.execute(
-        "SELECT * FROM companies WHERE name LIKE ? OR industry LIKE ? ORDER BY updated_at DESC",
-        (q, q)
+        "SELECT * FROM companies WHERE name LIKE ? OR industry LIKE ? OR sector LIKE ? ORDER BY updated_at DESC",
+        (q, q, q)
     ).fetchall()
     conn.close()
     return [dict(r) for r in rows]
+
+
+# ── OUTREACH CAMPAIGNS ────────────────────────────────────────────────────────
+
+def create_campaign(world_id: str, name: str, company_ids: list, batch_size: int, brief: str = "") -> int:
+    conn = get_conn()
+    cur = conn.cursor()
+    now = datetime.now().isoformat()
+    cur.execute(
+        """INSERT INTO outreach_campaigns (world_id, name, batch_size, brief, status, created_at, updated_at)
+           VALUES (?, ?, ?, ?, 'created', ?, ?)""",
+        (world_id, name, batch_size, brief or "", now, now),
+    )
+    campaign_id = cur.lastrowid
+    for i, cid in enumerate(company_ids):
+        cur.execute(
+            """INSERT INTO outreach_campaign_companies (campaign_id, company_id, sort_order, status, created_at, updated_at)
+               VALUES (?, ?, ?, 'pending', ?, ?)""",
+            (campaign_id, int(cid), i, now, now),
+        )
+    conn.commit()
+    conn.close()
+    return campaign_id
+
+
+def get_campaign(campaign_id: int) -> Optional[dict]:
+    conn = get_conn()
+    row = conn.execute("SELECT * FROM outreach_campaigns WHERE id = ?", (campaign_id,)).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def list_campaigns(world_id: str = None, limit: int = 30) -> list:
+    conn = get_conn()
+    if world_id:
+        rows = conn.execute(
+            "SELECT * FROM outreach_campaigns WHERE world_id = ? ORDER BY created_at DESC LIMIT ?",
+            (world_id, limit),
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            "SELECT * FROM outreach_campaigns ORDER BY created_at DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def update_campaign(campaign_id: int, **kwargs):
+    allowed = {"name", "brief", "status", "strategy_json", "batch_size"}
+    payload = {k: v for k, v in kwargs.items() if k in allowed}
+    if not payload:
+        return
+    payload["updated_at"] = datetime.now().isoformat()
+    conn = get_conn()
+    sets = ", ".join(f"{k} = ?" for k in payload)
+    conn.execute(f"UPDATE outreach_campaigns SET {sets} WHERE id = ?", (*payload.values(), campaign_id))
+    conn.commit()
+    conn.close()
+
+
+def get_campaign_companies(campaign_id: int) -> list:
+    conn = get_conn()
+    rows = conn.execute(
+        """SELECT cc.*, c.name as company_name, c.sector, c.status as company_status,
+                  c.research_summary, c.website, c.world_id
+           FROM outreach_campaign_companies cc
+           JOIN companies c ON cc.company_id = c.id
+           WHERE cc.campaign_id = ?
+           ORDER BY cc.sort_order ASC, cc.id ASC""",
+        (campaign_id,),
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def update_campaign_company(cc_id: int, **kwargs):
+    allowed = {"status", "research_json", "sort_order"}
+    payload = {k: v for k, v in kwargs.items() if k in allowed}
+    if not payload:
+        return
+    payload["updated_at"] = datetime.now().isoformat()
+    conn = get_conn()
+    sets = ", ".join(f"{k} = ?" for k in payload)
+    conn.execute(f"UPDATE outreach_campaign_companies SET {sets} WHERE id = ?", (*payload.values(), cc_id))
+    conn.commit()
+    conn.close()
+
+
+def create_outreach_draft(campaign_id: int, company_id: int, contact_id: int, channel: str,
+                          subject: str = "", body: str = "", personalization_notes: str = "",
+                          status: str = "draft") -> int:
+    conn = get_conn()
+    cur = conn.cursor()
+    now = datetime.now().isoformat()
+    cur.execute(
+        """INSERT INTO outreach_drafts
+           (campaign_id, company_id, contact_id, channel, subject, body, status,
+            personalization_notes, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (campaign_id, company_id, contact_id, channel, subject or "", body or "", status,
+         personalization_notes or "", now, now),
+    )
+    conn.commit()
+    draft_id = cur.lastrowid
+    conn.close()
+    return draft_id
+
+
+def get_draft(draft_id: int) -> Optional[dict]:
+    conn = get_conn()
+    row = conn.execute("SELECT * FROM outreach_drafts WHERE id = ?", (draft_id,)).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def list_campaign_drafts(campaign_id: int, company_id: int = None) -> list:
+    conn = get_conn()
+    if company_id:
+        rows = conn.execute(
+            """SELECT d.*, c.name as contact_name, c.email, c.phone, c.whatsapp_enabled,
+                      co.name as company_name
+               FROM outreach_drafts d
+               LEFT JOIN contacts c ON d.contact_id = c.id
+               LEFT JOIN companies co ON d.company_id = co.id
+               WHERE d.campaign_id = ? AND d.company_id = ?
+               ORDER BY d.id ASC""",
+            (campaign_id, company_id),
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            """SELECT d.*, c.name as contact_name, c.email, c.phone, c.whatsapp_enabled,
+                      co.name as company_name
+               FROM outreach_drafts d
+               LEFT JOIN contacts c ON d.contact_id = c.id
+               LEFT JOIN companies co ON d.company_id = co.id
+               WHERE d.campaign_id = ?
+               ORDER BY d.company_id, d.id ASC""",
+            (campaign_id,),
+        ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def update_draft(draft_id: int, **kwargs):
+    allowed = {
+        "subject", "body", "status", "personalization_notes", "error_message", "outreach_log_id",
+    }
+    payload = {k: v for k, v in kwargs.items() if k in allowed}
+    if not payload:
+        return
+    payload["updated_at"] = datetime.now().isoformat()
+    conn = get_conn()
+    sets = ", ".join(f"{k} = ?" for k in payload)
+    conn.execute(f"UPDATE outreach_drafts SET {sets} WHERE id = ?", (*payload.values(), draft_id))
+    conn.commit()
+    conn.close()
 
 # ── TASKS ─────────────────────────────────────────────────────────────────────
 
