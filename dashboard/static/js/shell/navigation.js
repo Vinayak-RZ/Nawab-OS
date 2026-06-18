@@ -39,7 +39,7 @@ export function registerShellNavigation(ctx) {
 
   function goView(view) {
     ctx.currentView = view;
-    ctx.$(".nav button").forEach(b => b.classList.toggle("is-active", b.dataset.view === view));
+    ctx.$$(".nav button").forEach(b => b.classList.toggle("is-active", b.dataset.view === view));
     ctx.$("#view-title").textContent = ctx.TITLES[view] || view;
     ctx.syncMobileNav(view);
     ctx.closeMobileShell();

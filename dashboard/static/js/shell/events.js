@@ -216,15 +216,15 @@ export function registerShellEvents(ctx) {
       const form = e.target;
       if (!(form instanceof HTMLFormElement)) return;
       const handlers = {
-        "world-create-form": createWorldFromForm,
-        "crm-create-form": submitCrmContact,
-        "crm-company-form": submitCrmCompany,
-        "crm-outreach-form": submitCrmOutreach,
-        "goal-create-form": submitGoal,
-        "reminder-create-form": submitReminder,
-        "agent-config-form": saveAgentConfig,
-        "world-edit-form": saveWorldEdit,
-        "vault-doc-form": submitVaultDoc,
+        "world-create-form": ctx.createWorldFromForm,
+        "crm-create-form": ctx.submitCrmContact,
+        "crm-company-form": ctx.submitCrmCompany,
+        "crm-outreach-form": ctx.submitCrmOutreach,
+        "goal-create-form": ctx.submitGoal,
+        "reminder-create-form": ctx.submitReminder,
+        "agent-config-form": ctx.saveAgentConfig,
+        "world-edit-form": ctx.saveWorldEdit,
+        "vault-doc-form": ctx.submitVaultDoc,
       };
       if (handlers[form.id]) {
         e.preventDefault();

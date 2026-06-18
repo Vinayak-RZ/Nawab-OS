@@ -217,7 +217,7 @@ export function registerViewsChat(ctx) {
       el.scrollTop = el.scrollHeight;
     }
     ctx.updateLiveStrip({ active: job.status === "running", phase: job.phase });
-    ctx.$("#chat-live-panel-phase, [id$='-phase']").forEach(n => {
+    ctx.$$("#chat-live-panel-phase, [id$='-phase']").forEach(n => {
       if (n) n.textContent = job.phase || "Idle";
     });
   }

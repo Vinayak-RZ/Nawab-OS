@@ -122,8 +122,9 @@ function toCtxRefs(code) {
   const lines = code.split("\n");
   const head = lines[0];
   let body = lines.slice(1).join("\n");
-  body = body.replace(/\$\$\(/g, "ctx.$$(");
+  body = body.replace(/\$\$\(/g, "@@FOS_DOUBLE_DOLLAR@@(");
   body = body.replace(/(?<!\$)\$\(/g, "ctx.$(");
+  body = body.replace(/@@FOS_DOUBLE_DOLLAR@@\(/g, "ctx.$$(");
   for (const m of [...CTX_METHODS_ALL].sort((a, b) => b.length - a.length)) {
     if (m === "$" || m === "$$") continue;
     const re = new RegExp(`(?<![.\\w])${m}\\(`, "g");

@@ -289,7 +289,7 @@ export function registerViewsWorld(ctx) {
   function patchWorldTreeNav() {
     const inspectId = ctx.inspectorWorldId();
     const activeId = ctx.state.activeWorldId || "root";
-    ctx.$("[data-inspect-world]").forEach(btn => {
+    ctx.$$("[data-inspect-world]").forEach(btn => {
       const id = btn.dataset.inspectWorld;
       btn.classList.toggle("is-inspect", id === inspectId);
       btn.classList.toggle("is-active", id === activeId);

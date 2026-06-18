@@ -60,9 +60,9 @@ export function registerFeaturesLive(ctx) {
   function patchLiveUI(live) {
     ctx.state.live = live || {};
     ctx.updateLiveStrip(live);
-    ctx.$("[id$='-phase']").forEach(el => { el.textContent = live?.phase || "Idle"; });
-    ctx.$("[id$='-flow']").forEach(el => { el.innerHTML = ctx.renderLiveFlow(live?.events || []); });
-    ctx.$(".live-panel").forEach(el => el.classList.toggle("is-active", !!live?.active));
+    ctx.$$("[id$='-phase']").forEach(el => { el.textContent = live?.phase || "Idle"; });
+    ctx.$$("[id$='-flow']").forEach(el => { el.innerHTML = ctx.renderLiveFlow(live?.events || []); });
+    ctx.$$(".live-panel").forEach(el => el.classList.toggle("is-active", !!live?.active));
   }
 
   async function pollLive() {
