@@ -2928,16 +2928,16 @@ function renderWorldOptionsForCrm(selectedId) {
   return opts.join("");
 }
 
-function renderCrmTabs() {
+function renderCrmTabs(counts = {}) {
   const tab = crmTab();
   const tabs = [
-    ["contacts", "Contacts"],
-    ["companies", "Companies"],
-    ["pipeline", "Pipeline"],
-    ["outreach", "Outreach"],
+    ["contacts", "Contacts", counts.contacts],
+    ["companies", "Companies", counts.companies],
+    ["pipeline", "Pipeline", null],
+    ["outreach", "Outreach", null],
   ];
-  return `<nav class="crm-tabs" aria-label="CRM sections">${tabs.map(([id, label]) =>
-    `<button type="button" class="crm-tab${tab === id ? " crm-tab--active" : ""}" data-crm-tab="${id}">${label}</button>`
+  return `<nav class="crm-tabs" role="tablist" aria-label="CRM sections">${tabs.map(([id, label, n]) =>
+    `<button type="button" role="tab" aria-selected="${tab === id}" class="crm-tab${tab === id ? " crm-tab--active" : ""}" data-crm-tab="${id}">${esc(label)}${n != null ? `<span class="crm-tab__count">${n}</span>` : ""}</button>`
   ).join("")}</nav>`;
 }
 
@@ -3033,7 +3033,22 @@ function renderCrmContactsPanel() {
 }
 
 function renderCrmCompaniesPanel() {
+  if (state._crmCompaniesLoading) {
+    return `<section class="driver-card span-12 crm-loading-panel" aria-busy="true">
+      <div class="crm-skeleton crm-skeleton--title"></div>
+      <div class="crm-skeleton crm-skeleton--row"></div>
+      <div class="crm-skeleton crm-skeleton--row"></div>
+      <div class="crm-skeleton crm-skeleton--row"></div>
+    </section>`;
+  }
+  if (state._crmCompaniesError) {
+    return `<section class="driver-card span-12 crm-error-panel">
+      <p class="body-md">Could not load companies — ${esc(state._crmCompaniesError)}</p>
+      <button type="button" class="button-primary button-sm" data-crm-reload>Retry</button>
+    </section>`;
+  }
   const companies = state._crmCompanies?.companies || [];
+  const unlinked = state._crmCompanies?.meta?.unlinked_contact_companies || 0;
   const formOpen = !!state.ui?.crmCompanyFormOpen;
   const detailId = state.ui?.crmCompanyDetail;
   const wid = currentWorldId();
@@ -3044,7 +3059,7 @@ function renderCrmCompaniesPanel() {
   const rows = companies.map(co => `<tr>
     <td><button type="button" class="button-tertiary-text" data-crm-company-detail="${co.id}">${esc(co.name)}</button></td>
     <td>${esc(co.sector || co.industry || "—")}</td>
-    <td>${esc(co.status || "prospect")}</td>
+    <td><span class="crm-status-pill crm-status-pill--${esc((co.status || "prospect").replace(/\s+/g, "-"))}">${esc(co.status || "prospect")}</span></td>
     <td>${co.contact_count ?? 0}</td>
     <td class="muted">${esc((co.last_contacted_at || "").slice(0, 10))}</td>
   </tr>`).join("");
@@ -3072,15 +3087,34 @@ function renderCrmCompaniesPanel() {
     }
   }
 
+  const importBanner = unlinked > 0 ? `
+    <div class="crm-import-banner">
+      <div>
+        <p class="body-md"><strong>${unlinked}</strong> unique company name${unlinked === 1 ? "" : "s"} on contacts not yet linked to company records.</p>
+        <p class="body-sm muted">Import creates company rows and links your existing contacts automatically.</p>
+      </div>
+      <button type="button" class="button-primary button-sm" data-crm-import-companies>Import from contacts</button>
+    </div>` : "";
+
+  const emptyState = !rows ? `
+    <div class="crm-empty-state">
+      <p class="body-md">No company records yet.</p>
+      <p class="body-sm muted">${unlinked > 0 ? "Import from contacts above, or add a company manually." : "Add companies manually, or enter company names when adding contacts."}</p>
+    </div>` : "";
+
   return `
     <section class="driver-card span-12 human-panel">
       <div class="human-panel__head">
         <div>
-          <p class="section-eyebrow">Companies</p>
-          <h3 class="title-sm">Accounts in <span data-active-world-label>${esc(activeWorldLabel())}</span></h3>
+          <h3 class="title-sm">Companies</h3>
+          <p class="body-sm muted">${companies.length} account${companies.length === 1 ? "" : "s"}</p>
         </div>
-        <button type="button" class="button-primary button-sm" data-toggle-ui="crmCompanyFormOpen">${formOpen ? "Hide form" : "Add company"}</button>
+        <div class="human-panel__actions">
+          <button type="button" class="button-outline-on-dark button-sm" data-crm-reload>Refresh</button>
+          <button type="button" class="button-primary button-sm" data-toggle-ui="crmCompanyFormOpen">${formOpen ? "Hide form" : "Add company"}</button>
+        </div>
       </div>
+      ${importBanner}
       ${formOpen ? `
       <form class="human-form" id="crm-company-form">
         <div class="human-form__row">
@@ -3110,8 +3144,8 @@ function renderCrmCompaniesPanel() {
       </form>` : ""}
     </section>
     <section class="band-light span-12 crm-companies-layout">
-      <div class="table-wrap"><table><thead><tr><th>Name</th><th>Sector</th><th>Status</th><th>Contacts</th><th>Last contact</th></tr></thead>
-      <tbody>${rows || '<tr><td colspan="5" class="muted">No companies in this world yet.</td></tr>'}</tbody></table></div>
+      ${emptyState || `<div class="table-wrap"><table><thead><tr><th>Name</th><th>Sector</th><th>Status</th><th>Contacts</th><th>Last contact</th></tr></thead>
+      <tbody>${rows}</tbody></table></div>`}
       ${detail}
     </section>`;
 }
@@ -3341,19 +3375,22 @@ function renderCrmOutreachSetupPanel() {
 
   const emptyCompanies = !companies.length
     ? `<div class="crm-outreach-empty">
-        <p class="body-md">No prospect companies in this world yet.</p>
+        <p class="body-md">No prospect companies available for this world.</p>
+        <p class="body-sm muted">Go to Companies and import from your existing contacts, or add companies manually.</p>
         <div class="human-form__actions">
-          <button type="button" class="button-primary button-sm" data-crm-tab="companies">Add companies</button>
-          <button type="button" class="button-outline-on-dark button-sm" data-crm-tab="contacts">Add contacts</button>
+          <button type="button" class="button-primary button-sm" data-crm-tab="companies">Open companies</button>
         </div>
       </div>`
     : `<p class="caption-uppercase">Companies (${selected.size}/${batchSize} selected)</p>
        <div class="crm-company-checklist">${companyChecks}</div>`;
 
   return `<section class="driver-card span-12 human-panel">
-    <p class="section-eyebrow">Batch outreach</p>
-    <h3 class="title-sm">Start a cohort campaign</h3>
-    <p class="body-md muted">Pick a world and companies. We research each via your knowledge tree + web, draft a shared strategy, then personalized email &amp; WhatsApp per contact. You approve every send.</p>
+    <div class="human-panel__head">
+      <div>
+        <h3 class="title-sm">Batch outreach</h3>
+        <p class="body-sm muted">Research, strategy, and personalized drafts — you approve every send.</p>
+      </div>
+    </div>
     ${renderCrmOutreachSteps("setup")}
     ${!hasSubWorld ? `<p class="crm-outreach-warn">Create a sub-world under <strong>World</strong> first — outreach requires a venture context for vault research.</p>` : ""}
     <form class="human-form" id="crm-outreach-form" style="margin-top:var(--space-md)">
@@ -3391,6 +3428,10 @@ function renderCrmOutreachPanel() {
 
 function renderCrm() {
   const tab = crmTab();
+  const counts = {
+    contacts: state._crm?.contacts?.length || 0,
+    companies: state._crmCompanies?.companies?.length || 0,
+  };
   let body = "";
   if (tab === "contacts") body = renderCrmContactsPanel();
   else if (tab === "companies") body = renderCrmCompaniesPanel();
@@ -3398,15 +3439,14 @@ function renderCrm() {
   else body = renderCrmOutreachPanel();
 
   return `<div class="dashboard-grid">
-    <section class="driver-card span-12 human-panel">
-      <div class="human-panel__head">
+    <section class="driver-card span-12 crm-shell">
+      <div class="human-panel__head crm-shell__head">
         <div>
-          <p class="section-eyebrow">CRM</p>
-          <h3 class="title-sm">Relationships &amp; outreach</h3>
+          <h2 class="title-md" style="text-wrap:balance">CRM</h2>
+          <p class="body-sm muted">Contacts, companies, pipeline, and batch outreach in one place.</p>
         </div>
       </div>
-      ${renderCrmTabs()}
-      <p class="body-sm muted" style="margin-top:var(--space-sm)">Use <strong>Companies</strong> and <strong>Contacts</strong> to prepare accounts, then <strong>Outreach</strong> to run a batch campaign.</p>
+      ${renderCrmTabs(counts)}
     </section>
     ${body}
   </div>`;
@@ -3818,32 +3858,45 @@ async function loadCrmData() {
   if (!state.ui) state.ui = {};
   if (!state.ui.crmOutreachWorld) state.ui.crmOutreachWorld = currentWorldId();
   const wid = tab === "outreach" ? crmOutreachWorldId() : currentWorldId();
+  const companiesQ = tab === "companies"
+    ? "?include_unassigned=1"
+    : (wid && wid !== "root"
+      ? `?world_id=${encodeURIComponent(wid)}&include_unassigned=1`
+      : "?include_unassigned=1");
   const worldQ = wid && wid !== "root" ? `?world_id=${encodeURIComponent(wid)}` : "";
-  const [crm, companies, campaigns] = await Promise.all([
-    api("/crm/contacts"),
-    api(`/crm/companies${worldQ}`).catch(() => ({ companies: [] })),
-    tab === "outreach" ? api(`/crm/outreach/campaigns${worldQ}`).catch(() => ({ campaigns: [] })) : Promise.resolve(state._crmCampaigns || { campaigns: [] }),
-  ]);
-  state._crm = crm;
-  state._crmCompanies = companies;
-  if (tab === "outreach") {
-    state._crmCampaigns = campaigns;
-    if (state.ui?.crmCampaignId) {
-      const cid = state.ui.crmCampaignId;
-      const [detail, review] = await Promise.all([
-        api(`/crm/outreach/campaigns/${cid}`).catch(() => null),
-        api(`/crm/outreach/campaigns/${cid}/review`).catch(() => null),
-      ]);
-      state._crmCampaignDetail = detail;
-      state._crmCampaignReview = review?.campaign ? review : detail?.review;
-      const camp = state._crmCampaignReview?.campaign || detail?.campaign;
-      if (camp && ["researching", "drafting", "created"].includes(camp.status)) {
-        state._crmOutreachJob = { active: true, phase: camp.status, status: camp.status };
-        if (!state._crmOutreachPollId) pollCrmOutreachJob(cid);
-      } else if (camp?.status === "review") {
-        state._crmOutreachJob = { phase: "Ready for review", active: false };
+  state._crmCompaniesLoading = true;
+  state._crmCompaniesError = null;
+  try {
+    const [crm, companies, campaigns] = await Promise.all([
+      api("/crm/contacts"),
+      api(`/crm/companies${companiesQ}`),
+      tab === "outreach" ? api(`/crm/outreach/campaigns${worldQ}`).catch(() => ({ campaigns: [] })) : Promise.resolve(state._crmCampaigns || { campaigns: [] }),
+    ]);
+    state._crm = crm;
+    state._crmCompanies = companies;
+    if (tab === "outreach") {
+      state._crmCampaigns = campaigns;
+      if (state.ui?.crmCampaignId) {
+        const cid = state.ui.crmCampaignId;
+        const [detail, review] = await Promise.all([
+          api(`/crm/outreach/campaigns/${cid}`).catch(() => null),
+          api(`/crm/outreach/campaigns/${cid}/review`).catch(() => null),
+        ]);
+        state._crmCampaignDetail = detail;
+        state._crmCampaignReview = review?.campaign ? review : detail?.review;
+        const camp = state._crmCampaignReview?.campaign || detail?.campaign;
+        if (camp && ["researching", "drafting", "created"].includes(camp.status)) {
+          state._crmOutreachJob = { active: true, phase: camp.status, status: camp.status };
+          if (!state._crmOutreachPollId) pollCrmOutreachJob(cid);
+        } else if (camp?.status === "review") {
+          state._crmOutreachJob = { phase: "Ready for review", active: false };
+        }
       }
     }
+  } catch (e) {
+    state._crmCompaniesError = e.message || "Could not load CRM data";
+  } finally {
+    state._crmCompaniesLoading = false;
   }
 }
 
@@ -4147,6 +4200,7 @@ function initContentDelegation() {
       + "[data-select-document],[data-docs-action],[data-tag-vault-doc],[data-nudge-index],"
       + "[data-remove-attachment],[data-open-vault-picker],[data-pick-vault-doc],"
       + "[data-crm-followup],[data-crm-wa-thread],[data-crm-tab],[data-crm-company-detail],[data-crm-company-close],"
+      + "[data-crm-import-companies],[data-crm-reload],"
       + "[data-crm-outreach-start],[data-crm-campaign],[data-crm-draft-approve],[data-crm-draft-skip],[data-crm-company-toggle],"
       + "[data-crm-skip-company],[data-crm-outreach-refresh],[data-crm-outreach-back],"
       + "[data-msg-read-more],"
@@ -4275,6 +4329,8 @@ function initContentDelegation() {
       state._crmCompanyDetail = null;
       return render();
     }
+    if (el.dataset.crmImportCompanies !== undefined) return importCrmCompaniesFromContacts();
+    if (el.dataset.crmReload !== undefined) return loadCrmData().then(() => render());
     if (el.dataset.crmFollowup) return scheduleCrmFollowup(el.dataset.crmFollowup, el.dataset.followupDays);
     if (el.dataset.crmWaThread) return loadCrmWaThread(el.dataset.crmWaThread);
     if (el.dataset.crmCampaign) return openCrmCampaignReview(el.dataset.crmCampaign);
@@ -4499,6 +4555,22 @@ async function submitCrmContact(form) {
     await refresh();
     render();
     form.reset();
+  } catch (e) { alert(e.message); }
+}
+
+async function importCrmCompaniesFromContacts() {
+  const wid = currentWorldId();
+  const world_id = wid && wid !== "root" ? wid : null;
+  try {
+    const res = await api("/crm/companies/import-from-contacts", {
+      method: "POST",
+      body: JSON.stringify({ world_id }),
+    });
+    await loadCrmData();
+    render();
+    const msg = `Imported ${res.created || 0} companies and linked ${res.linked_contacts || 0} contacts.`;
+    if (state._toast) state._toast(msg);
+    else alert(msg);
   } catch (e) { alert(e.message); }
 }
 

@@ -106,3 +106,34 @@ def test_rate_limit_gate(isolated_db):
     camp._last_send_at["email"] = time.time()
     msg = camp._rate_limit_gate("email")
     assert msg and "Rate limit" in msg
+
+
+def test_import_companies_from_contacts(isolated_db):
+    isolated_db.add_contact("Alice", company="Acme Ltd", email="a@acme.com")
+    isolated_db.add_contact("Bob", company="Acme Ltd", email="b@acme.com")
+    isolated_db.add_contact("Carol", company="Beta Inc", email="c@beta.com")
+
+    assert isolated_db.count_unlinked_contact_companies() == 2
+
+    result = isolated_db.import_companies_from_contacts(world_id="venture-a")
+    assert result["created"] == 2
+    assert result["linked_contacts"] == 3
+
+    companies = isolated_db.get_all_companies(world_id="venture-a")
+    assert len(companies) == 2
+    counts = isolated_db.company_contact_counts()
+    assert sum(counts.values()) == 3
+
+
+def test_get_all_companies_includes_unassigned_world(isolated_db):
+    isolated_db.add_company("Legacy Co", world_id=None)
+    isolated_db.add_company("Venture Co", world_id="venture-b")
+
+    scoped = isolated_db.get_all_companies(world_id="venture-b", include_unassigned=True)
+    names = {c["name"] for c in scoped}
+    assert "Venture Co" in names
+    assert "Legacy Co" in names
+
+    strict = isolated_db.get_all_companies(world_id="venture-b", include_unassigned=False)
+    assert len(strict) == 1
+    assert strict[0]["name"] == "Venture Co"

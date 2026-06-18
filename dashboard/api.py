@@ -356,15 +356,39 @@ def api_contacts_create():
 
 @bp.route("/crm/companies")
 def api_companies_list():
-    from memory.sql_store import get_all_companies, company_contact_counts
+    from memory.sql_store import get_all_companies, company_contact_counts, count_unlinked_contact_companies
     world_id = (request.args.get("world_id") or "").strip() or None
     status = (request.args.get("status") or "").strip() or None
     sector = (request.args.get("sector") or "").strip() or None
-    companies = _safe(lambda: get_all_companies(world_id=world_id, status=status, sector=sector), [])
+    include_unassigned = request.args.get("include_unassigned", "1") not in ("0", "false", "no")
+    companies = _safe(
+        lambda: get_all_companies(
+            world_id=world_id, status=status, sector=sector, include_unassigned=include_unassigned,
+        ),
+        [],
+    )
     counts = _safe(company_contact_counts, {})
     for co in companies:
         co["contact_count"] = counts.get(co["id"], 0)
-    return jsonify({"companies": companies})
+    return jsonify({
+        "companies": companies,
+        "meta": {
+            "unlinked_contact_companies": _safe(count_unlinked_contact_companies, 0),
+        },
+    })
+
+
+@bp.route("/crm/companies/import-from-contacts", methods=["POST"])
+def api_companies_import_from_contacts():
+    from memory.sql_store import import_companies_from_contacts
+    data = request.get_json(silent=True) or {}
+    world_id = (data.get("world_id") or request.args.get("world_id") or "").strip() or None
+    if world_id == "root":
+        world_id = None
+    result = _safe(lambda: import_companies_from_contacts(world_id), {"error": "import failed"})
+    if result.get("error"):
+        return jsonify(result), 500
+    return jsonify(result)
 
 
 @bp.route("/crm/companies", methods=["POST"])

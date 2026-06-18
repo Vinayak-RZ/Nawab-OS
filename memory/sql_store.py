@@ -414,12 +414,16 @@ def update_company(company_id: int, **kwargs):
     conn.close()
 
 
-def get_all_companies(world_id: str = None, status: str = None, sector: str = None) -> list:
+def get_all_companies(world_id: str = None, status: str = None, sector: str = None,
+                      include_unassigned: bool = True) -> list:
     conn = get_conn()
     q = "SELECT * FROM companies WHERE 1=1"
     params: list = []
     if world_id:
-        q += " AND world_id = ?"
+        if include_unassigned:
+            q += " AND (world_id = ? OR world_id IS NULL OR world_id = '')"
+        else:
+            q += " AND world_id = ?"
         params.append(world_id)
     if status:
         q += " AND status = ?"
@@ -431,6 +435,57 @@ def get_all_companies(world_id: str = None, status: str = None, sector: str = No
     rows = conn.execute(q, params).fetchall()
     conn.close()
     return [dict(r) for r in rows]
+
+
+def count_unlinked_contact_companies() -> int:
+    """Contacts with company text but no company_id FK."""
+    conn = get_conn()
+    row = conn.execute(
+        """SELECT COUNT(DISTINCT LOWER(TRIM(company))) AS n FROM contacts
+           WHERE company_id IS NULL AND company IS NOT NULL AND TRIM(company) != ''"""
+    ).fetchone()
+    conn.close()
+    return int(row["n"]) if row else 0
+
+
+def import_companies_from_contacts(world_id: str = None) -> dict:
+    """Create company rows from unique contact.company text and link contacts."""
+    conn = get_conn()
+    rows = conn.execute(
+        """SELECT company, COUNT(*) AS n FROM contacts
+           WHERE company_id IS NULL AND company IS NOT NULL AND TRIM(company) != ''
+           GROUP BY LOWER(TRIM(company)), company"""
+    ).fetchall()
+    created = 0
+    linked = 0
+    now = datetime.now().isoformat()
+    for row in rows:
+        name = (row["company"] or "").strip()
+        if not name:
+            continue
+        existing = conn.execute(
+            "SELECT id FROM companies WHERE LOWER(TRIM(name)) = LOWER(TRIM(?)) LIMIT 1",
+            (name,),
+        ).fetchone()
+        if existing:
+            co_id = existing["id"]
+        else:
+            cur = conn.execute(
+                """INSERT INTO companies (name, world_id, status, updated_at, created_at)
+                   VALUES (?, ?, 'prospect', ?, ?)""",
+                (name, world_id, now, now),
+            )
+            co_id = cur.lastrowid
+            created += 1
+        updated = conn.execute(
+            """UPDATE contacts SET company_id = ?, updated_at = ?
+               WHERE company_id IS NULL AND LOWER(TRIM(company)) = LOWER(TRIM(?))""",
+            (co_id, now, name),
+        ).rowcount
+        linked += updated
+    conn.commit()
+    conn.close()
+    return {"created": created, "linked_contacts": linked}
 
 
 def get_company_contacts(company_id: int) -> list:
