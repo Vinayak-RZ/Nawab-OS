@@ -37,8 +37,18 @@ export function registerShellNavigation(ctx) {
     });
   }
 
-  function goView(view) {
+  function goView(view, opts = {}) {
+    const params = opts.params ?? (view === ctx.currentView ? ctx.routeParams : {}) ?? {};
+    if (!opts.skipUrl) {
+      ctx.updateRoute(view, params, { replace: !!opts.replace });
+    } else {
+      ctx.applyRouteParams(view, params);
+    }
     ctx.currentView = view;
+    if (view !== "outreach" && ctx.state._crmOutreachPollId) {
+      clearTimeout(ctx.state._crmOutreachPollId);
+      ctx.state._crmOutreachPollId = null;
+    }
     ctx.$$(".nav button").forEach(b => b.classList.toggle("is-active", b.dataset.view === view));
     ctx.$("#view-title").textContent = ctx.TITLES[view] || view;
     ctx.syncMobileNav(view);
@@ -133,6 +143,7 @@ export function registerShellNavigation(ctx) {
     }
     if (action === "approvals") ctx.goView("approvals");
     else if (action === "crm") ctx.goView("crm");
+    else if (action === "outreach") ctx.goView("outreach");
     else if (action === "goals") ctx.goView("goals");
     else if (action === "chat") ctx.goView("chat");
     else ctx.goView(action || "dashboard");

@@ -95,18 +95,33 @@ export function registerShellBoot(ctx) {
   }
 
   function applyBootUrlParams() {
+    ctx.resolveBootRoute();
+
     const p = new URLSearchParams(location.search);
-    const view = p.get("view");
     const world = p.get("world");
-    if (view) ctx.currentView = view;
     if (world) {
       ctx.state.inspectorWorldId = world;
       ctx.setActiveWorld(world);
     }
+
+    const companies = p.get("companies");
+    if (companies && ctx.currentView === "outreach") {
+      const ids = companies.split(",").map(s => parseInt(s.trim(), 10)).filter(Boolean);
+      if (ids.length) {
+        if (!ctx.state.ui) ctx.state.ui = {};
+        ctx.state.ui.crmOutreachSelected = ids;
+      }
+      p.delete("companies");
+    }
+
     if (p.get("github") === "connected" || p.get("github_error")) {
       const err = p.get("github_error");
       if (err) console.warn("GitHub auth:", err);
-      history.replaceState({}, "", location.pathname);
+      p.delete("github");
+      p.delete("github_error");
+      const path = location.pathname || "/";
+      const qs = p.toString();
+      history.replaceState({}, "", path + (qs ? `?${qs}` : ""));
     }
   }
 

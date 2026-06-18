@@ -2,6 +2,7 @@
 export function registerShellData(ctx) {
   async function loadViewData(view) {
     if (view === "crm") await ctx.loadCrmData();
+    if (view === "outreach") await ctx.loadOutreachData();
     if (view === "settings") {
       ctx.state._whatsapp = await ctx.api("/whatsapp/status").catch(() => ({}));
       if (ctx.state._whatsapp.qr_pending) {

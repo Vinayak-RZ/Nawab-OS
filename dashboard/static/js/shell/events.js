@@ -21,7 +21,7 @@ export function registerShellEvents(ctx) {
         + "[data-crm-followup],[data-crm-wa-thread],[data-crm-tab],[data-crm-company-detail],[data-crm-company-close],"
         + "[data-crm-import-companies],[data-crm-reload],"
         + "[data-crm-outreach-start],[data-crm-campaign],[data-crm-draft-approve],[data-crm-draft-skip],[data-crm-company-toggle],"
-        + "[data-crm-skip-company],[data-crm-outreach-refresh],[data-crm-outreach-back],"
+        + "[data-crm-skip-company],[data-crm-outreach-refresh],[data-crm-outreach-back],[data-outreach-open-crm-companies],"
         + "[data-msg-read-more],"
         + "#chat-send,#chat-clear,#memory-search,#toggle-pause,#agents-vault-search,"
         + "#delegate-selected-btn,#btn-logout,#btn-infra-refresh"
@@ -140,7 +140,13 @@ export function registerShellEvents(ctx) {
       if (el.dataset.crmOutreachRefresh !== undefined) {
         const cid = ctx.state.ui?.crmCampaignId;
         if (cid) return ctx.pollCrmOutreachJob(cid, true);
-        return ctx.loadCrmData().then(() => ctx.render());
+        return ctx.loadOutreachData().then(() => ctx.render());
+      }
+      if (el.hasAttribute("data-outreach-open-crm-companies")) {
+        if (!ctx.state.ui) ctx.state.ui = {};
+        ctx.state.ui.crmTab = "companies";
+        localStorage.setItem("fos_crm_tab", "companies");
+        return ctx.goView("crm");
       }
       if (el.dataset.crmCompanyDetail) return ctx.openCrmCompanyDetail(el.dataset.crmCompanyDetail);
       if (el.dataset.crmCompanyClose !== undefined) {
@@ -270,7 +276,7 @@ export function registerShellEvents(ctx) {
         if (!ctx.state.ui) ctx.state.ui = {};
         ctx.state.ui.crmOutreachWorld = e.target.value;
         ctx.state.ui.crmOutreachSelected = [];
-        ctx.loadCrmData().then(() => ctx.render());
+        ctx.loadOutreachData().then(() => ctx.render());
       }
     });
   

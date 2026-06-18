@@ -1403,8 +1403,8 @@ def api_github_callback():
             pass
     port = config.dashboard_port
     if world_id:
-        return redirect(f"/?view=world&world={world_id}&github=connected")
-    return redirect("/?github=connected")
+        return redirect(f"/worlds?world={world_id}&github=connected")
+    return redirect("/worlds?github=connected")
 
 
 @bp.route("/github/repos")

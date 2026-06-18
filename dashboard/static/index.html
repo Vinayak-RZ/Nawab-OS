@@ -58,6 +58,7 @@
         <p class="nav-section-label">Workspace</p>
         <button type="button" data-view="world" class="nav-link"><span class="nav-link__body"><span>Worlds</span></span></button>
         <button type="button" data-view="crm" class="nav-link"><span class="nav-link__body"><span>CRM</span></span></button>
+        <button type="button" data-view="outreach" class="nav-link"><span class="nav-link__body"><span>Outreach</span></span></button>
         <button type="button" data-view="goals" class="nav-link"><span class="nav-link__body"><span>Goals</span></span></button>
         <button type="button" data-view="memory" class="nav-link"><span class="nav-link__body"><span>Memory</span></span></button>
         <button type="button" data-view="documents" class="nav-link"><span class="nav-link__body"><span>Documents</span></span></button>
@@ -160,6 +161,10 @@
         <span class="mobile-menu-link__icon" data-icon="crm"></span>
         <span>CRM</span>
       </button>
+      <button type="button" class="mobile-menu-link" data-view="outreach">
+        <span class="mobile-menu-link__icon" data-icon="outreach"></span>
+        <span>Outreach</span>
+      </button>
       <button type="button" class="mobile-menu-link" data-view="goals">
         <span class="mobile-menu-link__icon" data-icon="goals"></span>
         <span>Goals</span>
@@ -233,7 +238,7 @@
 
   <!-- Core UI first — must not depend on CDN (blocked CDN was preventing app.js from ever running) -->
   <script src="/static/charts.js?v=15"></script>
-  <script src="/static/nav-icons.js?v=16"></script>
+  <script src="/static/nav-icons.js?v=17"></script>
   <script>
     (function () {
       function setStatus(msg, ok) {
@@ -268,7 +273,7 @@
   <script defer src="https://cdn.jsdelivr.net/npm/marked@15.0.12/marked.min.js"></script>
   <script defer src="/static/lazy-vendors.js?v=1"></script>
   <script defer src="/static/markdown.js?v=32"></script>
-  <script defer src="/static/app.bundle.js?v=41" type="module"></script>
+  <script defer src="/static/app.bundle.js?v=42" type="module"></script>
   <script defer src="/static/graph-viz.js?v=20"></script>
   <script defer src="/static/motion.js?v=18"></script>
   <script defer src="/static/enhance.js?v=17"></script>

@@ -26,10 +26,39 @@ def is_authenticated() -> bool:
     return session.get("fos_auth") is True
 
 
+_SPA_PREFIXES = (
+    "/ask",
+    "/agents",
+    "/worlds",
+    "/crm",
+    "/outreach",
+    "/goals",
+    "/memory",
+    "/documents",
+    "/history",
+    "/approvals",
+    "/tools",
+    "/activity",
+    "/settings",
+    "/chat",
+    "/control",
+    "/dashboard",
+)
+
+
+def is_spa_path(path: str) -> bool:
+    if path in ("/", "/favicon.ico"):
+        return True
+    for prefix in _SPA_PREFIXES:
+        if path == prefix or path.startswith(prefix + "/"):
+            return True
+    return False
+
+
 def path_exempt(path: str) -> bool:
     if path.startswith("/static/"):
         return True
-    if path in ("/", "/favicon.ico"):
+    if is_spa_path(path):
         return True
     if path in ("/api/auth/status", "/api/auth/pin", "/api/health", "/api/github/callback"):
         return True

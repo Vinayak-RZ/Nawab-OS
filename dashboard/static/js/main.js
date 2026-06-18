@@ -20,6 +20,7 @@ import { registerViewsDocuments } from "./views/documents.js";
 import { registerViewsAgents } from "./views/agents.js";
 import { registerViewsWorld } from "./views/world.js";
 import { registerViewsCrm } from "./views/crm.js";
+import { registerViewsOutreach } from "./views/outreach.js";
 import { registerViewsGoals } from "./views/goals.js";
 import { registerViewsMemory } from "./views/memory.js";
 import { registerViewsHistory } from "./views/history.js";
@@ -33,6 +34,7 @@ import { registerShellNavigation } from "./shell/navigation.js";
 import { registerShellEvents } from "./shell/events.js";
 import { registerRender } from "./shell/render.js";
 import { registerShellBoot } from "./shell/boot.js";
+import { registerRouter } from "./shell/router.js";
 import { wireDomListeners } from "./shell/init.js";
 
 const ctx = {};
@@ -56,6 +58,7 @@ function registerAll() {
   registerViewsAgents(ctx);
   registerViewsWorld(ctx);
   registerViewsCrm(ctx);
+  registerViewsOutreach(ctx);
   registerViewsGoals(ctx);
   registerViewsMemory(ctx);
   registerViewsHistory(ctx);
@@ -69,9 +72,11 @@ function registerAll() {
   registerShellEvents(ctx);
   registerRender(ctx);
   registerShellBoot(ctx);
+  registerRouter(ctx);
 }
 
 registerAll();
+ctx.initRouter();
 wireDomListeners(ctx);
 
 // Legacy globals for enhance.js and deferred scripts

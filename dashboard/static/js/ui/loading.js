@@ -107,6 +107,9 @@ export function registerUiLoading(ctx) {
     if (view === "documents") {
       return `<div class="view-skeleton docs-workspace"><div class="skeleton-card driver-card">${ctx.skeletonCard(4)}</div><div class="skeleton-card driver-card">${ctx.skeletonCard(6)}</div></div>`;
     }
+    if (view === "outreach") {
+      return `<div class="view-skeleton">${ctx.skeletonCard(2)}${ctx.skeletonCard(4)}</div>`;
+    }
     return `<div class="view-skeleton">${ctx.skeletonCard(3)}${grid3}</div>`;
   }
 

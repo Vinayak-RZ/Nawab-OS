@@ -10,10 +10,10 @@ import os
 import threading
 from datetime import timedelta
 
-from flask import Flask, jsonify, request, send_from_directory
+from flask import Flask, abort, jsonify, request, send_from_directory
 
 from dashboard.api import bp as api_bp
-from dashboard.auth import is_authenticated, path_exempt, pin_required, register_auth_routes
+from dashboard.auth import is_authenticated, is_spa_path, path_exempt, pin_required, register_auth_routes
 
 import agent.tools  # noqa: F401 — register all tools for chat/API
 
@@ -89,6 +89,17 @@ def _perf_response_headers(response):
 
 @app.route("/")
 def index():
+    return send_from_directory(_STATIC, "index.html")
+
+
+@app.route("/<path:subpath>")
+def spa_fallback(subpath: str):
+    """Serve the SPA shell for client-side routes (/crm, /ask, /outreach/campaigns/12, …)."""
+    if subpath.startswith("api/") or subpath.startswith("static/"):
+        abort(404)
+    path = "/" + subpath
+    if not is_spa_path(path):
+        abort(404)
     return send_from_directory(_STATIC, "index.html")
 
 

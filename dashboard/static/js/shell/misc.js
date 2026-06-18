@@ -59,21 +59,6 @@ export function registerShellMisc(ctx) {
     return `${(b / 1048576).toFixed(1)} MB`;
   }
 
-  function draftApproveDisabledReason(d) {
-    if (d.channel === "email") {
-      if (!(d.subject || "").trim()) return "Subject required";
-      if (!(d.body || "").trim()) return "Body required";
-      if (!(d.email || "").trim()) return "Contact has no email";
-    }
-    if (d.channel === "whatsapp") {
-      if (!(d.body || "").trim()) return "Message required";
-      if ((d.body || "").length > 300) return "Max 300 characters";
-      if (!d.whatsapp_enabled) return "WhatsApp not allowlisted";
-      if (!(d.phone || "").trim()) return "No phone on contact";
-    }
-    return "";
-  }
-
   function fmtHistoryTime(ts) {
     if (!ts) return "";
     const d = typeof ts === "number" ? new Date(ts * 1000) : new Date(ts);
@@ -106,35 +91,6 @@ export function registerShellMisc(ctx) {
       </div>
       <p class="integration-card__detail">${ctx.esc(detail)}</p>
     </div>`;
-  }
-
-  function toggleCrmOutreachCompany(el) {
-    const id = parseInt(el.dataset.crmCompanyToggle, 10);
-    if (!id) return;
-    if (!ctx.state.ui) ctx.state.ui = {};
-    const batch = ctx.state.ui.crmOutreachBatch || 5;
-    const sel = new Set(ctx.state.ui.crmOutreachSelected || []);
-    if (el.checked) {
-      if (sel.size >= batch) { el.checked = false; return; }
-      sel.add(id);
-    } else {
-      sel.delete(id);
-    }
-    ctx.state.ui.crmOutreachSelected = [...sel];
-    ctx.render();
-  }
-
-  function closeCrmCampaignReview() {
-    if (ctx.state._crmOutreachPollId) clearTimeout(ctx.state._crmOutreachPollId);
-    ctx.state._crmOutreachPollId = null;
-    if (ctx.state.ui) {
-      ctx.state.ui.crmCampaignId = null;
-      ctx.state.ui.crmOutreachSelected = [];
-    }
-    ctx.state._crmCampaignReview = null;
-    ctx.state._crmCampaignDetail = null;
-    ctx.state._crmOutreachJob = null;
-    ctx.loadCrmData().then(() => ctx.render());
   }
 
   async function uploadFile(e) {
@@ -189,13 +145,10 @@ export function registerShellMisc(ctx) {
   ctx.afterVaultMutation = afterVaultMutation;
   ctx.vaultStorageLabel = vaultStorageLabel;
   ctx.formatBytes = formatBytes;
-  ctx.draftApproveDisabledReason = draftApproveDisabledReason;
   ctx.fmtHistoryTime = fmtHistoryTime;
   ctx.infraKvRow = infraKvRow;
   ctx.infraHealthCard = infraHealthCard;
   ctx.integrationCard = integrationCard;
-  ctx.toggleCrmOutreachCompany = toggleCrmOutreachCompany;
-  ctx.closeCrmCampaignReview = closeCrmCampaignReview;
   ctx.uploadFile = uploadFile;
   ctx.initSidebarCollapse = initSidebarCollapse;
 }

@@ -40,6 +40,27 @@ def test_github_callback_exempt():
     assert path_exempt("/api/github/callback")
 
 
+def test_spa_paths_exempt():
+    assert path_exempt("/crm")
+    assert path_exempt("/outreach")
+    assert path_exempt("/outreach/campaigns/12")
+    assert path_exempt("/ask")
+    assert path_exempt("/chat")
+
+
+def test_spa_routes_serve_index(client):
+    for path in ("/crm", "/outreach", "/ask", "/outreach/campaigns/99"):
+        r = client.get(path)
+        assert r.status_code == 200, path
+        assert b"Nawab OS" in r.data or b"pin-gate" in r.data
+
+
+def test_legacy_chat_redirects_to_spa(client):
+    r = client.get("/chat")
+    assert r.status_code == 200
+    assert b"Nawab OS" in r.data or b"pin-gate" in r.data
+
+
 def test_health_unauthenticated(client):
     r = client.get("/api/health")
     assert r.status_code == 200

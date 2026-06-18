@@ -28,6 +28,7 @@ export function registerRender(ctx) {
       world: ctx.renderWorld,
       approvals: ctx.renderApprovals,
       crm: ctx.renderCrm,
+      outreach: ctx.renderOutreach,
       goals: ctx.renderGoals,
       memory: ctx.renderMemory,
       history: ctx.renderHistory,

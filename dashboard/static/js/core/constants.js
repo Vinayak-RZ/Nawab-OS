@@ -24,6 +24,7 @@ export const TITLES = {
   world: "Worlds",
   approvals: "Approvals",
   crm: "CRM & pipeline",
+  outreach: "Outreach",
   goals: "Goals & tasks",
   memory: "Memory",
   documents: "Documents",
