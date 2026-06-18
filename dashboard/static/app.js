@@ -3135,101 +3135,258 @@ function renderCrmPipelinePanel() {
     <section class="driver-card span-6"><p class="caption-uppercase">Company pipeline</p><div style="margin-top:var(--space-sm)">${coRows}</div></section>`;
 }
 
-function renderCrmOutreachPanel() {
-  const campaigns = state._crmCampaigns?.campaigns || [];
-  const activeId = state.ui?.crmCampaignId;
+function crmOutreachWorldId() {
+  return state.ui?.crmOutreachWorld || currentWorldId();
+}
+
+function crmOutreachStep() {
   const review = state._crmCampaignReview;
-  const wid = currentWorldId();
-  const companies = (state._crmCompanies?.companies || []).filter(c => c.status === "prospect" || !c.status);
-  const batchSize = state.ui?.crmOutreachBatch || 5;
-  const selected = new Set(state.ui?.crmOutreachSelected || []);
+  const camp = review?.campaign;
+  if (camp?.status === "done" || (review?.done && !review?.pending_count)) return "complete";
+  if (review?.campaign && ["review"].includes(camp.status) && review.pending_count > 0) return "review";
+  if (review?.campaign && ["review"].includes(camp.status) && !review.pending_count) return "complete";
+  if (state._crmOutreachJob?.active || ["researching", "drafting", "created"].includes(camp?.status || state._crmOutreachJob?.status)) {
+    return "running";
+  }
+  if (state.ui?.crmCampaignId && camp && !["review", "done", "failed"].includes(camp.status)) return "running";
+  return "setup";
+}
 
-  if (review?.campaign) {
-    const camp = review.campaign;
-    const strategy = review.strategy || {};
-    const co = review.current_company;
-    const research = review.current_research || {};
-    const drafts = review.current_drafts || [];
-    const emailDrafts = drafts.filter(d => d.channel === "email");
-    const waDrafts = drafts.filter(d => d.channel === "whatsapp");
+function renderCrmOutreachSteps(step) {
+  const steps = [
+    ["setup", "1. Setup"],
+    ["running", "2. Research & draft"],
+    ["review", "3. Review & send"],
+    ["complete", "4. Done"],
+  ];
+  const order = { setup: 0, running: 1, review: 2, complete: 3 };
+  const cur = order[step] ?? 0;
+  return `<nav class="crm-outreach-steps" aria-label="Outreach progress">${steps.map(([id, label], i) => {
+    const cls = i < cur ? "crm-outreach-step crm-outreach-step--done"
+      : i === cur ? "crm-outreach-step crm-outreach-step--active"
+      : "crm-outreach-step";
+    return `<span class="${cls}">${esc(label)}</span>`;
+  }).join("")}</nav>`;
+}
 
-    const draftCard = (d) => `<div class="crm-draft-card driver-card" data-draft-id="${d.id}">
-      <p class="caption-uppercase">${esc(d.channel)} → ${esc(d.contact_name || "Contact")}</p>
+function draftApproveDisabledReason(d) {
+  if (d.channel === "email") {
+    if (!(d.subject || "").trim()) return "Subject required";
+    if (!(d.body || "").trim()) return "Body required";
+    if (!(d.email || "").trim()) return "Contact has no email";
+  }
+  if (d.channel === "whatsapp") {
+    if (!(d.body || "").trim()) return "Message required";
+    if ((d.body || "").length > 300) return "Max 300 characters";
+    if (!d.whatsapp_enabled) return "WhatsApp not allowlisted";
+    if (!(d.phone || "").trim()) return "No phone on contact";
+  }
+  return "";
+}
+
+function renderCrmOutreachRunningPanel() {
+  const job = state._crmOutreachJob || {};
+  const camp = state._crmCampaignDetail?.campaign || state._crmCampaignReview?.campaign || {};
+  const phase = job.phase || camp.status || "Starting…";
+  const companies = state._crmCampaignReview?.companies || state._crmCampaignDetail?.review?.companies || [];
+  const total = companies.length || camp.batch_size || "?";
+  return `<section class="driver-card span-12 crm-outreach-running">
+    <p class="section-eyebrow">Outreach in progress</p>
+    <h3 class="title-sm">${esc(camp.name || "Campaign")}</h3>
+    ${renderCrmOutreachSteps("running")}
+    <div class="crm-outreach-progress-strip">
+      <div class="crm-outreach-progress-strip__bar"><div class="crm-outreach-progress-strip__fill" style="width:40%"></div></div>
+      <p class="body-md"><strong>${esc(phase)}</strong></p>
+      <p class="muted body-sm">Researching companies via knowledge tree + web, then drafting messages. This runs in the background — you can leave this page.</p>
+      <p class="muted body-sm">Batch: ${total} companies · World: <span data-active-world-label>${esc(activeWorldLabel())}</span></p>
+    </div>
+    <button type="button" class="button-outline-on-dark button-sm" data-crm-outreach-refresh>Refresh status</button>
+  </section>`;
+}
+
+function renderCrmOutreachCompletePanel(review) {
+  const prog = review.progress || {};
+  const by = prog.by_status || {};
+  return `<section class="driver-card span-12">
+    <p class="section-eyebrow">Campaign complete</p>
+    <h3 class="title-sm">${esc(review.campaign?.name || "Campaign")}</h3>
+    ${renderCrmOutreachSteps("complete")}
+    <div class="crm-outreach-summary">
+      <div class="kv"><span class="k">Sent</span><span class="v">${by.sent || 0}</span></div>
+      <div class="kv"><span class="k">Skipped</span><span class="v">${by.skipped || 0}</span></div>
+      <div class="kv"><span class="k">Failed</span><span class="v">${by.failed || 0}</span></div>
+      <div class="kv"><span class="k">Companies</span><span class="v">${prog.companies_complete || 0}/${prog.companies_total || 0}</span></div>
+    </div>
+    <div class="human-form__actions" style="margin-top:var(--space-md)">
+      <button type="button" class="button-primary button-sm" data-crm-outreach-back>Start new campaign</button>
+    </div>
+  </section>`;
+}
+
+function renderCrmOutreachReviewPanel(review) {
+  const camp = review.campaign;
+  const strategy = review.strategy || {};
+  const co = review.current_company;
+  const research = review.current_research || {};
+  const drafts = review.current_drafts || [];
+  const prog = review.progress || {};
+  const emailDrafts = drafts.filter(d => d.channel === "email");
+  const waDrafts = drafts.filter(d => d.channel === "whatsapp");
+  const coLabel = co?.company_name || co?.name || "Company";
+  const coIdx = prog.company_index || 1;
+  const coTotal = prog.companies_total || 1;
+
+  const draftCard = (d) => {
+    const reason = draftApproveDisabledReason(d);
+    const waLen = (d.body || "").length;
+    return `<div class="crm-draft-card driver-card" data-draft-id="${d.id}">
+      <div class="crm-draft-card__head">
+        <p class="caption-uppercase">${d.channel === "email" ? "Gmail" : "WhatsApp"} → ${esc(d.contact_name || "Contact")}</p>
+        ${d.channel === "email" ? `<span class="muted body-sm">${esc(d.email || "")}</span>` : `<span class="muted body-sm">${esc(d.phone || "")}</span>`}
+      </div>
+      ${d.personalization_notes ? `<p class="body-sm muted">${esc(d.personalization_notes)}</p>` : ""}
       ${d.channel === "email" ? `<label class="human-field"><span class="caption-uppercase">Subject</span>
         <input class="text-input-on-dark crm-draft-subject" data-draft-id="${d.id}" value="${esc(d.subject || "")}"></label>` : ""}
       <label class="human-field"><span class="caption-uppercase">Message</span>
-        <textarea class="text-input-on-dark crm-draft-body" data-draft-id="${d.id}" rows="${d.channel === "whatsapp" ? 3 : 6}">${esc(d.body || "")}</textarea></label>
+        <textarea class="text-input-on-dark crm-draft-body" data-draft-id="${d.id}" data-channel="${esc(d.channel)}" rows="${d.channel === "whatsapp" ? 3 : 6}">${esc(d.body || "")}</textarea>
+        ${d.channel === "whatsapp" ? `<span class="caption muted crm-wa-count" data-draft-id="${d.id}">${waLen}/300</span>` : ""}
+      </label>
       <div class="human-form__actions">
-        <button type="button" class="button-primary button-sm" data-crm-draft-approve="${d.id}">Approve &amp; Send</button>
-        <button type="button" class="button-outline-on-dark button-sm" data-crm-draft-skip="${d.id}">Skip</button>
+        <button type="button" class="button-primary button-sm" data-crm-draft-approve="${d.id}" ${reason ? "disabled title=\"" + esc(reason) + "\"" : ""}>Approve &amp; Send</button>
+        <button type="button" class="button-outline-on-dark button-sm" data-crm-draft-skip="${d.id}">Skip message</button>
       </div>
-      ${d.error_message ? `<p class="muted">${esc(d.error_message)}</p>` : ""}
+      ${d.error_message ? `<p class="crm-draft-error">${esc(d.error_message)}</p>` : ""}
+      ${reason ? `<p class="muted body-sm">${esc(reason)}</p>` : ""}
     </div>`;
+  };
 
-    return `<section class="driver-card span-12">
-      <div class="human-panel__head">
-        <div>
-          <p class="section-eyebrow">Review</p>
-          <h3 class="title-sm">${esc(camp.name || "Campaign")}</h3>
-          <p class="muted body-sm">${review.pending_count || 0} messages remaining</p>
-        </div>
-        <button type="button" class="button-outline-on-dark button-sm" data-crm-outreach-back>Back to list</button>
+  return `<section class="driver-card span-12">
+    <div class="human-panel__head">
+      <div>
+        <p class="section-eyebrow">Review &amp; send</p>
+        <h3 class="title-sm">${esc(camp.name || "Campaign")}</h3>
+        <p class="muted body-sm">Company ${coIdx} of ${coTotal} · ${review.pending_count || 0} message(s) left — approve one at a time</p>
       </div>
-      <details class="crm-strategy-details" style="margin-bottom:var(--space-md)">
-        <summary class="caption-uppercase">Strategy</summary>
-        <pre class="body-sm muted" style="white-space:pre-wrap">${esc(JSON.stringify(strategy, null, 2))}</pre>
-      </details>
-      ${co ? `<div class="driver-card" style="margin-bottom:var(--space-md)">
-        <h4 class="title-sm">${esc(co.company_name || co.name || "Company")}</h4>
-        <p class="body-sm muted">${esc(research.sector || "")}</p>
-        ${(research.web_hits || []).slice(0, 2).map(w => `<p class="body-sm">• ${esc(w.snippet || w.title || "")}</p>`).join("")}
-        ${(research.vault_files_used || []).length ? `<p class="caption-uppercase">Vault files used</p><ul class="list-plain">${research.vault_files_used.map(f => `<li>${esc(f.title || f.doc_id)}</li>`).join("")}</ul>` : ""}
-      </div>` : "<p class='muted'>All messages handled — campaign complete.</p>"}
-      ${emailDrafts.map(draftCard).join("")}
-      ${waDrafts.map(draftCard).join("")}
-    </section>`;
-  }
+      <button type="button" class="button-outline-on-dark button-sm" data-crm-outreach-back>Exit review</button>
+    </div>
+    ${renderCrmOutreachSteps("review")}
+    <div class="crm-outreach-progress-meta">
+      <div class="crm-outreach-progress-strip__bar"><div class="crm-outreach-progress-strip__fill" style="width:${Math.round(((prog.companies_complete || 0) / Math.max(coTotal, 1)) * 100)}%"></div></div>
+      <div class="crm-outreach-stats">
+        <span class="badge-pill">Sent ${(prog.by_status || {}).sent || 0}</span>
+        <span class="badge-pill">Skipped ${(prog.by_status || {}).skipped || 0}</span>
+        <span class="badge-pill">Pending ${review.pending_count || 0}</span>
+      </div>
+    </div>
+    <details class="crm-strategy-details">
+      <summary class="caption-uppercase">Cohort strategy</summary>
+      <pre class="body-sm muted" style="white-space:pre-wrap">${esc(JSON.stringify(strategy, null, 2))}</pre>
+    </details>
+    ${co ? `<div class="crm-company-review driver-card">
+      <div class="human-panel__head">
+        <h4 class="title-sm">${esc(coLabel)}</h4>
+        <button type="button" class="button-outline-on-dark button-sm" data-crm-skip-company="${co.company_id}">Skip company</button>
+      </div>
+      <p class="body-sm muted">${esc(research.sector || co.sector || "")}</p>
+      ${research.crm_research_summary ? `<p class="body-sm">${esc(String(research.crm_research_summary).slice(0, 400))}</p>` : ""}
+      ${(research.web_hits || []).length ? `<p class="caption-uppercase">Web signals</p><ul class="list-plain">${research.web_hits.slice(0, 3).map(w =>
+        `<li class="body-sm">${esc(w.snippet || w.title || "")}${w.url ? ` <a href="${esc(w.url)}" target="_blank" rel="noopener">link</a>` : ""}</li>`
+      ).join("")}</ul>` : ""}
+      ${(research.vault_files_used || []).length ? `<p class="caption-uppercase">Vault files used</p><ul class="list-plain">${research.vault_files_used.map(f =>
+        `<li class="body-sm">${esc(f.title || ("doc #" + f.doc_id))}</li>`
+      ).join("")}</ul>` : ""}
+    </div>` : ""}
+    ${emailDrafts.length ? `<p class="caption-uppercase">Email drafts</p>` : ""}
+    ${emailDrafts.map(draftCard).join("")}
+    ${waDrafts.length ? `<p class="caption-uppercase" style="margin-top:var(--space-md)">WhatsApp drafts</p>` : ""}
+    ${waDrafts.map(draftCard).join("")}
+    ${!drafts.length && co ? `<p class="muted">No drafts for this company — contacts may lack email or WhatsApp allowlist.</p>` : ""}
+  </section>`;
+}
 
-  const companyChecks = companies.slice(0, 80).map(co => {
+function renderCrmOutreachSetupPanel() {
+  const campaigns = state._crmCampaigns?.campaigns || [];
+  const wid = crmOutreachWorldId();
+  const companies = (state._crmCompanies?.companies || []).filter(c => {
+    if (wid && wid !== "root" && c.world_id && c.world_id !== wid) return false;
+    return c.status === "prospect" || !c.status;
+  });
+  const batchSize = state.ui?.crmOutreachBatch || 5;
+  const selected = new Set(state.ui?.crmOutreachSelected || []);
+  const tree = state.worlds || state._worldFull?.worlds || {};
+  const hasSubWorld = (tree.children || []).length > 0;
+
+  const companyChecks = companies.map(co => {
     const on = selected.has(co.id);
+    const contacts = co.contact_count || 0;
     return `<label class="crm-company-check human-field--checkbox">
       <input type="checkbox" data-crm-company-toggle="${co.id}" ${on ? "checked" : ""} ${selected.size >= batchSize && !on ? "disabled" : ""}>
-      <span>${esc(co.name)} <span class="muted">${esc(co.sector || "")}</span></span>
+      <span>${esc(co.name)} <span class="muted">${esc(co.sector || "")} · ${contacts} contact(s)</span></span>
     </label>`;
-  }).join("") || "<p class='muted'>No prospect companies in this world — add companies first.</p>";
+  }).join("");
 
   const batchOpts = [5, 10, 15, 20].map(n =>
     `<option value="${n}"${batchSize === n ? " selected" : ""}>${n}</option>`
   ).join("");
 
-  const history = campaigns.slice(0, 10).map(c => `<li>
-    <button type="button" class="button-tertiary-text" data-crm-campaign="${c.id}">${esc(c.name)}</button>
-    <span class="muted"> — ${esc(c.status)}</span>
-  </li>`).join("") || "<li class='muted'>No campaigns yet</li>";
+  const history = campaigns.slice(0, 12).map(c => {
+    const badge = c.status === "review" ? "button-primary" : "button-tertiary-text";
+    return `<tr>
+      <td><button type="button" class="${badge} button-sm" data-crm-campaign="${c.id}">${esc(c.name)}</button></td>
+      <td><span class="badge-pill">${esc(c.status)}</span></td>
+      <td class="muted">${esc((c.created_at || "").slice(0, 10))}</td>
+      <td>${c.status === "review" ? `<button type="button" class="button-outline-on-dark button-sm" data-crm-campaign="${c.id}">Continue review</button>` : ""}</td>
+    </tr>`;
+  }).join("") || '<tr><td colspan="4" class="muted">No campaigns yet</td></tr>';
+
+  const emptyCompanies = !companies.length
+    ? `<div class="crm-outreach-empty">
+        <p class="body-md">No prospect companies in this world yet.</p>
+        <div class="human-form__actions">
+          <button type="button" class="button-primary button-sm" data-crm-tab="companies">Add companies</button>
+          <button type="button" class="button-outline-on-dark button-sm" data-crm-tab="contacts">Add contacts</button>
+        </div>
+      </div>`
+    : `<p class="caption-uppercase">Companies (${selected.size}/${batchSize} selected)</p>
+       <div class="crm-company-checklist">${companyChecks}</div>`;
 
   return `<section class="driver-card span-12 human-panel">
-    <p class="section-eyebrow">Outreach</p>
-    <h3 class="title-sm">Start batch outreach</h3>
-    <p class="body-md muted">Research via knowledge tree + web, draft email &amp; WhatsApp per contact. You approve each send.</p>
-    ${state._crmOutreachJob?.phase ? `<p class="badge-pill">${esc(state._crmOutreachJob.phase)}</p>` : ""}
+    <p class="section-eyebrow">Batch outreach</p>
+    <h3 class="title-sm">Start a cohort campaign</h3>
+    <p class="body-md muted">Pick a world and companies. We research each via your knowledge tree + web, draft a shared strategy, then personalized email &amp; WhatsApp per contact. You approve every send.</p>
+    ${renderCrmOutreachSteps("setup")}
+    ${!hasSubWorld ? `<p class="crm-outreach-warn">Create a sub-world under <strong>World</strong> first — outreach requires a venture context for vault research.</p>` : ""}
     <form class="human-form" id="crm-outreach-form" style="margin-top:var(--space-md)">
       <div class="human-form__row">
-        <label class="human-field"><span class="caption-uppercase">World</span>
-          <select class="text-input-on-dark" name="world_id">${renderWorldOptionsForCrm(wid)}</select></label>
+        <label class="human-field"><span class="caption-uppercase">World (required)</span>
+          <select class="text-input-on-dark" name="world_id" id="crm-outreach-world">${renderWorldOptionsForCrm(wid)}</select></label>
         <label class="human-field"><span class="caption-uppercase">Batch size</span>
           <select class="text-input-on-dark" name="batch_size" id="crm-outreach-batch">${batchOpts}</select></label>
       </div>
-      <label class="human-field"><span class="caption-uppercase">Brief</span>
-        <textarea class="text-input-on-dark" name="brief" rows="3" placeholder="What kind of message? Sector angle, offer, tone…"></textarea></label>
-      <p class="caption-uppercase">Companies (${selected.size}/${batchSize})</p>
-      <div class="crm-company-checklist">${companyChecks}</div>
+      <label class="human-field"><span class="caption-uppercase">Outreach brief</span>
+        <textarea class="text-input-on-dark" name="brief" rows="3" placeholder="e.g. Indian manufacturing SMBs — energy cost savings, 15-min discovery call, direct tone"></textarea></label>
+      ${emptyCompanies}
       <div class="human-form__actions">
-        <button type="submit" class="button-primary button-sm" data-crm-outreach-start ${selected.size ? "" : "disabled"}>Start outreach</button>
+        <button type="submit" class="button-primary button-sm" ${selected.size && wid !== "root" ? "" : "disabled"}>
+          Start outreach (${selected.size || 0} companies)
+        </button>
       </div>
     </form>
-    <p class="caption-uppercase" style="margin-top:var(--space-lg)">Recent campaigns</p>
-    <ul class="list-plain">${history}</ul>
+    <section style="margin-top:var(--space-lg)">
+      <p class="caption-uppercase">Recent campaigns</p>
+      <div class="table-wrap"><table><thead><tr><th>Campaign</th><th>Status</th><th>Created</th><th></th></tr></thead><tbody>${history}</tbody></table></div>
+    </section>
   </section>`;
+}
+
+function renderCrmOutreachPanel() {
+  const step = crmOutreachStep();
+  const review = state._crmCampaignReview;
+
+  if (step === "running") return renderCrmOutreachRunningPanel();
+  if (step === "complete" && review?.campaign) return renderCrmOutreachCompletePanel(review);
+  if (step === "review" && review?.campaign) return renderCrmOutreachReviewPanel(review);
+  return renderCrmOutreachSetupPanel();
 }
 
 function renderCrm() {
@@ -3249,6 +3406,7 @@ function renderCrm() {
         </div>
       </div>
       ${renderCrmTabs()}
+      <p class="body-sm muted" style="margin-top:var(--space-sm)">Use <strong>Companies</strong> and <strong>Contacts</strong> to prepare accounts, then <strong>Outreach</strong> to run a batch campaign.</p>
     </section>
     ${body}
   </div>`;
@@ -3656,9 +3814,11 @@ function renderSettings() {
 // ── Navigation ───────────────────────────────────────────────────────────────
 
 async function loadCrmData() {
-  const wid = currentWorldId();
-  const worldQ = wid && wid !== "root" ? `?world_id=${encodeURIComponent(wid)}` : "";
   const tab = crmTab();
+  if (!state.ui) state.ui = {};
+  if (!state.ui.crmOutreachWorld) state.ui.crmOutreachWorld = currentWorldId();
+  const wid = tab === "outreach" ? crmOutreachWorldId() : currentWorldId();
+  const worldQ = wid && wid !== "root" ? `?world_id=${encodeURIComponent(wid)}` : "";
   const [crm, companies, campaigns] = await Promise.all([
     api("/crm/contacts"),
     api(`/crm/companies${worldQ}`).catch(() => ({ companies: [] })),
@@ -3669,7 +3829,20 @@ async function loadCrmData() {
   if (tab === "outreach") {
     state._crmCampaigns = campaigns;
     if (state.ui?.crmCampaignId) {
-      state._crmCampaignReview = await api(`/crm/outreach/campaigns/${state.ui.crmCampaignId}/review`).catch(() => null);
+      const cid = state.ui.crmCampaignId;
+      const [detail, review] = await Promise.all([
+        api(`/crm/outreach/campaigns/${cid}`).catch(() => null),
+        api(`/crm/outreach/campaigns/${cid}/review`).catch(() => null),
+      ]);
+      state._crmCampaignDetail = detail;
+      state._crmCampaignReview = review?.campaign ? review : detail?.review;
+      const camp = state._crmCampaignReview?.campaign || detail?.campaign;
+      if (camp && ["researching", "drafting", "created"].includes(camp.status)) {
+        state._crmOutreachJob = { active: true, phase: camp.status, status: camp.status };
+        if (!state._crmOutreachPollId) pollCrmOutreachJob(cid);
+      } else if (camp?.status === "review") {
+        state._crmOutreachJob = { phase: "Ready for review", active: false };
+      }
     }
   }
 }
@@ -3975,6 +4148,7 @@ function initContentDelegation() {
       + "[data-remove-attachment],[data-open-vault-picker],[data-pick-vault-doc],"
       + "[data-crm-followup],[data-crm-wa-thread],[data-crm-tab],[data-crm-company-detail],[data-crm-company-close],"
       + "[data-crm-outreach-start],[data-crm-campaign],[data-crm-draft-approve],[data-crm-draft-skip],[data-crm-company-toggle],"
+      + "[data-crm-skip-company],[data-crm-outreach-refresh],[data-crm-outreach-back],"
       + "[data-msg-read-more],"
       + "#chat-send,#chat-clear,#memory-search,#toggle-pause,#agents-vault-search,"
       + "#delegate-selected-btn,#btn-logout,#btn-infra-refresh"
@@ -4090,6 +4264,11 @@ function initContentDelegation() {
       localStorage.setItem("fos_crm_tab", state.ui.crmTab);
       return loadCrmData().then(() => render());
     }
+    if (el.dataset.crmOutreachRefresh !== undefined) {
+      const cid = state.ui?.crmCampaignId;
+      if (cid) return pollCrmOutreachJob(cid, true);
+      return loadCrmData().then(() => render());
+    }
     if (el.dataset.crmCompanyDetail) return openCrmCompanyDetail(el.dataset.crmCompanyDetail);
     if (el.dataset.crmCompanyClose !== undefined) {
       if (state.ui) state.ui.crmCompanyDetail = null;
@@ -4102,6 +4281,7 @@ function initContentDelegation() {
     if (el.hasAttribute("data-crm-outreach-back")) return closeCrmCampaignReview();
     if (el.dataset.crmDraftApprove) return approveCrmDraft(el.dataset.crmDraftApprove);
     if (el.dataset.crmDraftSkip) return skipCrmDraft(el.dataset.crmDraftSkip);
+    if (el.dataset.crmSkipCompany) return skipCrmCompany(el.dataset.crmSkipCompany);
     if (el.dataset.reminderDone) return updateReminderStatus(el.dataset.reminderDone, "done");
     if (el.dataset.reminderCancel) return updateReminderStatus(el.dataset.reminderCancel, "cancelled");
     if (el.dataset.notifAction) return openNotificationAction(el.dataset.notifAction, el.dataset.notifId);
@@ -4211,7 +4391,20 @@ function initContentDelegation() {
       }
       render();
     }
+    if (e.target.id === "crm-outreach-world") {
+      if (!state.ui) state.ui = {};
+      state.ui.crmOutreachWorld = e.target.value;
+      state.ui.crmOutreachSelected = [];
+      loadCrmData().then(() => render());
+    }
   });
+
+  root.addEventListener("blur", e => {
+    if (e.target.matches(".crm-draft-subject, .crm-draft-body")) {
+      const id = e.target.dataset.draftId;
+      if (id) saveCrmDraftEdits(id).catch(() => {});
+    }
+  }, true);
 
   root.addEventListener("keydown", e => {
     if (e.target.id === "chat-input" && e.key === "Enter" && !e.shiftKey) {
@@ -4222,6 +4415,11 @@ function initContentDelegation() {
   });
 
   root.addEventListener("input", e => {
+    if (e.target.matches(".crm-draft-body[data-channel='whatsapp']")) {
+      const id = e.target.dataset.draftId;
+      const counter = document.querySelector(`.crm-wa-count[data-draft-id="${id}"]`);
+      if (counter) counter.textContent = `${e.target.value.length}/300`;
+    }
     if (e.target.id === "delegate-selected") state._delegateDraft = e.target.value;
   });
 }
@@ -4362,40 +4560,50 @@ async function submitCrmOutreach(form) {
   const batch_size = parseInt(fd.get("batch_size") || "5", 10) || 5;
   const brief = (fd.get("brief") || "").toString().trim();
   const company_ids = state.ui?.crmOutreachSelected || [];
-  if (!world_id || world_id === "root") return alert("Select a sub-world for outreach.");
+  if (!world_id || world_id === "root") return alert("Select a sub-world for outreach (not Main world).");
   if (!company_ids.length) return alert("Select at least one company.");
+  if (!brief) return alert("Add a brief so the agent knows what kind of message to write.");
   try {
     const created = await api("/crm/outreach/campaigns", {
       method: "POST",
       body: JSON.stringify({ world_id, batch_size, brief, company_ids }),
     });
     const start = await api(`/crm/outreach/campaigns/${created.campaign_id}/start`, { method: "POST" });
-    state._crmOutreachJob = start.job || {};
+    state._crmOutreachJob = { ...(start.job || {}), active: true, phase: "Starting…" };
     if (!state.ui) state.ui = {};
     state.ui.crmCampaignId = created.campaign_id;
     state.ui.crmOutreachSelected = [];
+    state.ui.crmTab = "outreach";
+    render();
     pollCrmOutreachJob(created.campaign_id);
   } catch (e) { alert(e.message); }
 }
 
-async function pollCrmOutreachJob(campaignId) {
+async function pollCrmOutreachJob(campaignId, once = false) {
+  if (state._crmOutreachPollId) clearTimeout(state._crmOutreachPollId);
   const tick = async () => {
     try {
       const detail = await api(`/crm/outreach/campaigns/${campaignId}`);
       const camp = detail.campaign || {};
+      const review = detail.review || {};
+      const job = detail.job || {};
+      state._crmCampaignDetail = detail;
       if (camp.status === "review" || camp.status === "done" || camp.status === "failed") {
-        state._crmOutreachJob = { phase: camp.status === "review" ? "Ready for review" : camp.status };
-        await openCrmCampaignReview(campaignId);
+        state._crmOutreachJob = { active: false, phase: camp.status === "review" ? "Ready for review" : camp.status };
+        state._crmCampaignReview = review.campaign ? review : await api(`/crm/outreach/campaigns/${campaignId}/review`);
+        state._crmOutreachPollId = null;
+        render();
         return;
       }
-      state._crmOutreachJob = { phase: camp.status || "running…" };
+      state._crmOutreachJob = { active: true, phase: job.phase || camp.status || "running…", status: camp.status };
       render();
-      setTimeout(tick, 2500);
+      if (!once) state._crmOutreachPollId = setTimeout(tick, 2500);
     } catch {
-      setTimeout(tick, 4000);
+      if (!once) state._crmOutreachPollId = setTimeout(tick, 4000);
     }
   };
-  setTimeout(tick, 2000);
+  if (once) await tick();
+  else state._crmOutreachPollId = setTimeout(tick, 500);
 }
 
 async function openCrmCampaignReview(campaignId) {
@@ -4411,9 +4619,27 @@ async function openCrmCampaignReview(campaignId) {
 }
 
 function closeCrmCampaignReview() {
-  if (state.ui) state.ui.crmCampaignId = null;
+  if (state._crmOutreachPollId) clearTimeout(state._crmOutreachPollId);
+  state._crmOutreachPollId = null;
+  if (state.ui) {
+    state.ui.crmCampaignId = null;
+    state.ui.crmOutreachSelected = [];
+  }
   state._crmCampaignReview = null;
+  state._crmCampaignDetail = null;
+  state._crmOutreachJob = null;
   loadCrmData().then(() => render());
+}
+
+async function skipCrmCompany(companyId) {
+  const cid = state.ui?.crmCampaignId;
+  if (!cid || !companyId) return;
+  if (!confirm("Skip all pending messages for this company?")) return;
+  try {
+    await api(`/crm/outreach/campaigns/${cid}/companies/${companyId}/skip`, { method: "POST" });
+    state._crmCampaignReview = await api(`/crm/outreach/campaigns/${cid}/review`);
+    render();
+  } catch (e) { alert(e.message); }
 }
 
 async function saveCrmDraftEdits(draftId) {

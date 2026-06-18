@@ -341,6 +341,18 @@ def get_review_queue(campaign_id: int) -> dict:
         except Exception:
             pass
 
+    by_status: dict[str, int] = {}
+    for d in drafts:
+        s = d.get("status") or "draft"
+        by_status[s] = by_status.get(s, 0) + 1
+
+    company_ids = [c["company_id"] for c in companies]
+    company_index = (company_ids.index(current_company_id) + 1) if current_company_id in company_ids else len(company_ids)
+    companies_complete = sum(
+        1 for cid in company_ids
+        if not any(d.get("status") in ("draft", "approved") for d in drafts if d["company_id"] == cid)
+    )
+
     return {
         "campaign": camp,
         "strategy": strategy,
@@ -351,7 +363,14 @@ def get_review_queue(campaign_id: int) -> dict:
         "current_research": research,
         "current_drafts": [d for d in drafts if d.get("company_id") == current_company_id] if current_company_id else [],
         "pending_count": len(pending_drafts),
-        "done": len(pending_drafts) == 0 and camp.get("status") == "review",
+        "done": len(pending_drafts) == 0 and camp.get("status") in ("review", "done"),
+        "progress": {
+            "companies_total": len(companies),
+            "companies_complete": companies_complete,
+            "company_index": company_index,
+            "drafts_total": len(drafts),
+            "by_status": by_status,
+        },
     }
 
 
@@ -473,6 +492,27 @@ def skip_draft(draft_id: int) -> dict:
     return {"ok": True, "draft_id": draft_id}
 
 
+def skip_company(campaign_id: int, company_id: int) -> dict:
+    """Skip all pending drafts for a company and advance the review queue."""
+    camp = get_campaign(campaign_id)
+    if not camp:
+        return {"error": "campaign not found"}
+    rows = [c for c in get_campaign_companies(campaign_id) if c["company_id"] == int(company_id)]
+    if not rows:
+        return {"error": "company not in campaign"}
+    cc_id = rows[0]["id"]
+    skipped = 0
+    for d in list_campaign_drafts(campaign_id, company_id):
+        if d.get("status") in ("draft", "approved"):
+            update_draft(d["id"], status="skipped")
+            skipped += 1
+    update_campaign_company(cc_id, status="skipped")
+    queue = get_review_queue(campaign_id)
+    if queue.get("done"):
+        update_campaign(campaign_id, status="done")
+    return {"ok": True, "company_id": company_id, "skipped_drafts": skipped}
+
+
 def start_campaign_job(campaign_id: int) -> dict:
     job_id = f"camp-{campaign_id}-{int(time.time())}"
     job = {"id": job_id, "campaign_id": campaign_id, "status": "running", "phase": "Starting…"}
@@ -503,3 +543,10 @@ def start_campaign_job(campaign_id: int) -> dict:
 
 def get_campaign_job(job_id: str) -> dict | None:
     return _campaign_jobs.get(job_id)
+
+
+def get_running_job_for_campaign(campaign_id: int) -> dict | None:
+    for job in _campaign_jobs.values():
+        if job.get("campaign_id") == campaign_id and job.get("status") == "running":
+            return job
+    return None

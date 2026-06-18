@@ -3544,6 +3544,90 @@ button.is-loading,
   cursor: pointer;
   margin-bottom: var(--space-xs);
 }
+.crm-outreach-steps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-xs);
+  margin: var(--space-md) 0;
+}
+.crm-outreach-step {
+  font-size: 0.75rem;
+  padding: 0.25rem 0.65rem;
+  border-radius: 999px;
+  border: 1px solid var(--color-border);
+  color: var(--color-muted);
+}
+.crm-outreach-step--active {
+  border-color: var(--color-accent);
+  color: var(--color-fg);
+  background: color-mix(in srgb, var(--color-accent) 14%, transparent);
+}
+.crm-outreach-step--done {
+  border-color: var(--color-accent);
+  opacity: 0.75;
+}
+.crm-outreach-progress-strip {
+  margin: var(--space-md) 0;
+  padding: var(--space-md);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+.crm-outreach-progress-strip__bar {
+  height: 6px;
+  background: var(--color-border);
+  border-radius: 999px;
+  overflow: hidden;
+  margin-bottom: var(--space-sm);
+}
+.crm-outreach-progress-strip__fill {
+  height: 100%;
+  background: var(--color-accent);
+  transition: width 0.3s ease;
+}
+.crm-outreach-progress-meta {
+  margin: var(--space-md) 0;
+}
+.crm-outreach-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-xs);
+  margin-top: var(--space-sm);
+}
+.crm-outreach-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: var(--space-sm);
+  margin-top: var(--space-md);
+}
+.crm-company-review {
+  margin: var(--space-md) 0;
+  padding: var(--space-md);
+}
+.crm-draft-card__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: var(--space-sm);
+  flex-wrap: wrap;
+  margin-bottom: var(--space-sm);
+}
+.crm-draft-error {
+  color: var(--color-danger, #e55);
+  font-size: 0.875rem;
+}
+.crm-outreach-warn {
+  padding: var(--space-sm) var(--space-md);
+  border-radius: var(--radius-md);
+  border: 1px solid color-mix(in srgb, orange 40%, var(--color-border));
+  background: color-mix(in srgb, orange 8%, transparent);
+  margin-top: var(--space-sm);
+}
+.crm-outreach-empty {
+  padding: var(--space-md);
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius-md);
+  margin: var(--space-sm) 0;
+}
 
 .reminder-row__actions {
   display: flex;

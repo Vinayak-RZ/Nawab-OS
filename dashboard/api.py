@@ -461,10 +461,13 @@ def api_outreach_campaign_detail(cid):
     if not camp:
         return jsonify({"error": "campaign not found"}), 404
     review = _safe(lambda: get_review_queue(cid), {})
+    from outreach.campaign import get_running_job_for_campaign
+    job = _safe(lambda: get_running_job_for_campaign(cid), None)
     return jsonify({
         "campaign": camp,
         "review": review,
         "drafts": _safe(lambda: list_campaign_drafts(cid), []),
+        "job": job,
     })
 
 
@@ -517,6 +520,15 @@ def api_outreach_campaign_stats(cid):
     if stats.get("error"):
         return jsonify(stats), 404
     return jsonify(stats)
+
+
+@bp.route("/crm/outreach/campaigns/<int:cid>/companies/<int:co_id>/skip", methods=["POST"])
+def api_outreach_skip_company(cid, co_id):
+    from outreach.campaign import skip_company
+    result = skip_company(cid, co_id)
+    if result.get("error"):
+        return jsonify(result), 400
+    return jsonify(result)
 
 
 @bp.route("/crm/outreach/drafts/<int:did>/skip", methods=["POST"])
