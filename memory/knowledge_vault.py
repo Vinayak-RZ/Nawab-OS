@@ -324,6 +324,81 @@ def vault_structure(world_id: str, world_slug: str, template_id: str, world: dic
     }
 
 
+def vault_outline(world_id: str, world_slug: str, template_id: str, world: dict | None = None) -> dict:
+    """Cheap tree for navigate-then-fetch: facets → files with doc_id + summary only."""
+    structure = vault_structure(world_id, world_slug, template_id, world=world)
+    facets_out = []
+    for facet in structure.get("facets") or []:
+        files = []
+        for doc in facet.get("documents") or []:
+            files.append({
+                "doc_id": doc.get("id"),
+                "title": doc.get("title") or doc.get("filename") or "Document",
+                "summary": (doc.get("description") or "").strip()[:400],
+                "source": doc.get("source_type") or "upload",
+                "path": doc.get("relative_path") or doc.get("github_path") or "",
+            })
+        for disk in facet.get("files") or []:
+            files.append({
+                "doc_id": None,
+                "title": disk.get("name") or disk.get("relative") or "file",
+                "summary": "On-disk file (ingest or upload to fetch by doc_id).",
+                "source": "disk",
+                "path": disk.get("relative") or disk.get("path") or "",
+            })
+        facets_out.append({
+            "id": facet.get("id") or facet.get("folder"),
+            "label": facet.get("label") or facet.get("folder"),
+            "folder": facet.get("folder"),
+            "domain": facet.get("domain"),
+            "files": files,
+        })
+    return {
+        "world_id": world_id,
+        "document_count": structure.get("document_count") or 0,
+        "facets": facets_out,
+    }
+
+
+def read_vault_file(doc_id: int, world_id: str | None = None, max_chars: int = 50_000) -> dict:
+    """Fetch full vault document text (size-capped)."""
+    from integrations import documents as doc_extract
+    from memory.vault_documents import get_document
+    from integrations import object_storage
+
+    doc = get_document(int(doc_id))
+    if not doc:
+        return {"error": f"Document {doc_id} not found"}
+    if world_id and doc.get("world_id") != world_id:
+        return {"error": "Document does not belong to this world"}
+
+    raw = object_storage.get_bytes(doc.get("storage_key") or "")
+    if raw is None:
+        return {"error": "Content not found in storage"}
+
+    fn = doc.get("filename") or doc.get("title") or "file"
+    try:
+        text = raw.decode("utf-8")
+    except UnicodeDecodeError:
+        text = doc_extract.extract_text(raw, filename=fn, max_chars=max_chars + 1000)
+
+    truncated = False
+    if len(text) > max_chars:
+        text = text[:max_chars]
+        truncated = True
+
+    return {
+        "doc_id": doc["id"],
+        "world_id": doc.get("world_id"),
+        "title": doc.get("title"),
+        "path": doc.get("relative_path") or doc.get("github_path") or "",
+        "source": doc.get("source_type") or "upload",
+        "content": text,
+        "truncated": truncated,
+        "size_bytes": doc.get("size_bytes") or len(raw),
+    }
+
+
 def enrich_world(world: dict) -> dict:
     if not world:
         return world

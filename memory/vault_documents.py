@@ -17,6 +17,29 @@ from memory.world_templates import facets_for_template
 SUPPORTED_EXT = {".pdf", ".docx", ".txt", ".md", ".markdown", ".rst", ".csv", ".json"}
 
 
+def summarize_document_text(text: str, max_lines: int = 3, max_len: int = 360) -> str:
+    """Heuristic 1–3 line summary for vault tree navigation (no LLM)."""
+    lines = [ln.strip() for ln in (text or "").splitlines() if ln.strip()]
+    picked: list[str] = []
+    for ln in lines:
+        if ln.startswith("```"):
+            continue
+        if ln.startswith("#"):
+            picked.append(ln.lstrip("#").strip())
+        elif ln.startswith(("-", "*", ">")):
+            picked.append(ln.lstrip("-*> ").strip())
+        else:
+            picked.append(ln)
+        if len(picked) >= max_lines:
+            break
+    summary = " ".join(picked).strip()
+    if not summary:
+        summary = " ".join(lines[:max_lines]).strip()
+    if len(summary) > max_len:
+        return summary[: max_len - 1].rstrip() + "…"
+    return summary or "Document"
+
+
 def init_vault_documents_db():
     conn = get_conn()
     conn.executescript(
@@ -197,6 +220,16 @@ def create_document(
         file_bytes = text_content.encode("utf-8")
     if not file_bytes:
         raise ValueError("file or text_content is required")
+
+    if not (description or "").strip() and text_content:
+        description = summarize_document_text(text_content)
+    elif not (description or "").strip():
+        try:
+            from integrations import documents as doc_extract
+            preview = doc_extract.extract_text(file_bytes, filename=filename or title, max_chars=8000)
+            description = summarize_document_text(preview)
+        except Exception:
+            description = ""
 
     fn = filename or f"{_slug(title)}.bin"
     ext = os.path.splitext(fn)[1].lower()

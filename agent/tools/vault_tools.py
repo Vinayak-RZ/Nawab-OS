@@ -74,6 +74,51 @@ def vault_structure(world_id):
 
 
 @register(
+    name="vault_outline",
+    description="Return a cheap knowledge tree for a world: facet folders and files with doc_id, "
+                "title, and 1–3 line summaries. Use before read_vault_file for navigate-then-fetch research.",
+    parameters={
+        "type": "object",
+        "properties": {"world_id": {"type": "string"}},
+        "required": ["world_id"],
+    },
+    category="research",
+)
+def vault_outline(world_id):
+    from memory import worlds as hierarchical_worlds
+    wid, slug, tpl, err = _world_ctx(world_id)
+    if err:
+        return err
+    w = hierarchical_worlds.get(wid)
+    return knowledge_vault.vault_outline(wid, slug, tpl, world=w)
+
+
+@register(
+    name="read_vault_file",
+    description="Read the full text of a vault document by doc_id (from vault_outline). "
+                "Size-capped; use when summaries are not enough.",
+    parameters={
+        "type": "object",
+        "properties": {
+            "doc_id": {"type": "integer"},
+            "world_id": {"type": "string", "description": "Optional scope check."},
+            "max_chars": {"type": "integer", "description": "Max characters (default 50000)."},
+        },
+        "required": ["doc_id"],
+    },
+    category="research",
+)
+def read_vault_file(doc_id, world_id=None, max_chars=50000):
+    wid = None
+    if world_id:
+        wid, _slug, _tpl, err = _world_ctx(world_id)
+        if err:
+            return err
+    cap = max(1000, min(int(max_chars or 50000), 100_000))
+    return knowledge_vault.read_vault_file(int(doc_id), world_id=wid, max_chars=cap)
+
+
+@register(
     name="ingest_vault_folder",
     description="Ingest all supported documents from a folder into the world's vault "
                 "(domain inferred from subfolder). Use after cloning a docs repo.",

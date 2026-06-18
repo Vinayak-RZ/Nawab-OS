@@ -300,14 +300,17 @@ def build_vault_graph(vault: dict | None = None, world: dict | None = None) -> d
             doc_total += 1
             did = _nid("vault_doc", str(doc.get("id", doc_total)))
             title = (doc.get("title") or doc.get("filename") or "Document")[:36]
+            summary = (doc.get("description") or "")[:120]
+            label = f"{title}" if not summary else f"{title}"
             nodes.append(
                 _node(
                     did,
-                    title,
+                    label,
                     "vault_file",
                     doc_id=doc.get("id"),
                     facet_id=fid,
                     source=doc.get("source_type") or "upload",
+                    summary=summary,
                 )
             )
             edges.append(_edge(fnid, did, "doc"))

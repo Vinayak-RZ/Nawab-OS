@@ -32,11 +32,8 @@ def _facet_for_path(relative: str, template_id: str) -> str:
 
 
 def _description_from_text(text: str, max_len: int = 400) -> str:
-    lines = [ln.strip() for ln in (text or "").splitlines() if ln.strip()]
-    body = " ".join(lines[:6])
-    if len(body) > max_len:
-        return body[: max_len - 1] + "…"
-    return body or "Imported from GitHub"
+    from memory.vault_documents import summarize_document_text
+    return summarize_document_text(text, max_lines=3, max_len=max_len)
 
 
 def _title_from_path(path: str) -> str:
