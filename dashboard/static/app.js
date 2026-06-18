@@ -897,6 +897,7 @@ const TITLES = {
 };
 
 const CRM_STATUSES = ["prospect", "contacted", "replied", "meeting", "won", "lost", "nurture"];
+const COMPANY_STATUSES = ["prospect", "contacted", "responded", "meeting_set", "closed", "dead"];
 
 const CHART_COLORS = ["#f75440", "#00666b", "#03904a", "#051f13", "#5a403c", "#8f706b", "#e3beb8"];
 
@@ -2911,17 +2912,45 @@ function renderApprovals() {
     </div>`).join("")}</section>`;
 }
 
-function renderCrm() {
+function crmTab() {
+  return state.ui?.crmTab || localStorage.getItem("fos_crm_tab") || "contacts";
+}
+
+function renderWorldOptionsForCrm(selectedId) {
+  const tree = state.worlds || state._worldFull?.worlds || {};
+  const root = tree.root;
+  const children = tree.children || [];
+  const opts = [];
+  if (root) opts.push(`<option value="${esc(root.id || "root")}"${(selectedId || "root") === (root.id || "root") ? " selected" : ""}>${esc(root.name || "Main world")}</option>`);
+  children.forEach(c => {
+    opts.push(`<option value="${esc(c.id)}"${selectedId === c.id ? " selected" : ""}>${esc(c.name || c.id)}</option>`);
+  });
+  return opts.join("");
+}
+
+function renderCrmTabs() {
+  const tab = crmTab();
+  const tabs = [
+    ["contacts", "Contacts"],
+    ["companies", "Companies"],
+    ["pipeline", "Pipeline"],
+    ["outreach", "Outreach"],
+  ];
+  return `<nav class="crm-tabs" aria-label="CRM sections">${tabs.map(([id, label]) =>
+    `<button type="button" class="crm-tab${tab === id ? " crm-tab--active" : ""}" data-crm-tab="${id}">${label}</button>`
+  ).join("")}</nav>`;
+}
+
+function renderCrmContactsPanel() {
   const contacts = state._crm?.contacts || [];
   const followups = state._crm?.followups_due || [];
-  const pipeline = state._crm?.pipeline || {};
   const formOpen = !!state.ui?.crmFormOpen;
-  const pipeRows = Object.entries(pipeline).map(([k, v]) =>
-    `<div class="kv"><span class="k">${esc(k)}</span><span class="v">${v}</span></div>`
-  ).join("") || "<p class='muted'>No pipeline data</p>";
-
+  const companies = state._crmCompanies?.companies || [];
   const statusOpts = (cur) => CRM_STATUSES.map(s =>
     `<option value="${s}"${s === cur ? " selected" : ""}>${esc(s)}</option>`
+  ).join("");
+  const companyOpts = `<option value="">— None —</option>` + companies.map(co =>
+    `<option value="${co.id}">${esc(co.name)}</option>`
   ).join("");
 
   const rows = contacts.slice(0, 50).map(c => `<tr>
@@ -2943,13 +2972,12 @@ function renderCrm() {
     <button type="button" class="button-outline-on-dark button-sm" data-goto="crm">Open</button>
   </li>`).join("") || "<li class='muted'>None due</li>";
 
-  return `<div class="dashboard-grid">
+  return `
     <section class="driver-card span-12 human-panel">
       <div class="human-panel__head">
         <div>
-          <p class="section-eyebrow">CRM</p>
-          <h3 class="title-sm">Contacts &amp; pipeline</h3>
-          <p class="body-md muted">Add and update leads yourself. Status changes save immediately.</p>
+          <p class="section-eyebrow">Contacts</p>
+          <h3 class="title-sm">People &amp; follow-ups</h3>
         </div>
         <button type="button" class="button-primary button-sm" data-toggle-ui="crmFormOpen">${formOpen ? "Hide form" : "Add contact"}</button>
       </div>
@@ -2959,7 +2987,7 @@ function renderCrm() {
           <label class="human-field"><span class="caption-uppercase">Name</span>
             <input class="text-input-on-dark" name="name" required placeholder="Full name"></label>
           <label class="human-field"><span class="caption-uppercase">Company</span>
-            <input class="text-input-on-dark" name="company" placeholder="Company"></label>
+            <select class="text-input-on-dark" name="company_id">${companyOpts}</select></label>
         </div>
         <div class="human-form__row">
           <label class="human-field"><span class="caption-uppercase">Role</span>
@@ -2989,8 +3017,7 @@ function renderCrm() {
         </div>
       </form>` : ""}
     </section>
-    <section class="driver-card span-4"><p class="caption-uppercase">Pipeline</p><div style="margin-top:var(--space-sm)">${pipeRows}</div></section>
-    <section class="driver-card span-8"><p class="caption-uppercase">Follow-ups due</p><ul class="list-plain" style="margin-top:var(--space-sm)">${fu}</ul></section>
+    <section class="driver-card span-12"><p class="caption-uppercase">Follow-ups due</p><ul class="list-plain" style="margin-top:var(--space-sm)">${fu}</ul></section>
     <section class="band-light span-12">
       <p class="caption-uppercase" style="color:var(--color-muted)">Contacts (${contacts.length})</p>
       <div class="table-wrap"><table><thead><tr><th>Name</th><th>Company</th><th>Role</th><th>Status</th><th>Email</th><th>Phone</th><th>WA</th><th>Follow up</th></tr></thead>
@@ -3002,7 +3029,139 @@ function renderCrm() {
           + `<strong>${esc(m.direction || "")}</strong>: ${esc((m.body || "").slice(0, 200))}</li>`
         ).join("")}</ul>
       </div>` : ""}
+    </section>`;
+}
+
+function renderCrmCompaniesPanel() {
+  const companies = state._crmCompanies?.companies || [];
+  const formOpen = !!state.ui?.crmCompanyFormOpen;
+  const detailId = state.ui?.crmCompanyDetail;
+  const wid = currentWorldId();
+  const statusOpts = (cur) => COMPANY_STATUSES.map(s =>
+    `<option value="${s}"${s === cur ? " selected" : ""}>${esc(s)}</option>`
+  ).join("");
+
+  const rows = companies.map(co => `<tr>
+    <td><button type="button" class="button-tertiary-text" data-crm-company-detail="${co.id}">${esc(co.name)}</button></td>
+    <td>${esc(co.sector || co.industry || "—")}</td>
+    <td>${esc(co.status || "prospect")}</td>
+    <td>${co.contact_count ?? 0}</td>
+    <td class="muted">${esc((co.last_contacted_at || "").slice(0, 10))}</td>
+  </tr>`).join("");
+
+  let detail = "";
+  if (detailId) {
+    const co = companies.find(c => String(c.id) === String(detailId)) || state._crmCompanyDetail?.company;
+    const contacts = state._crmCompanyDetail?.contacts || [];
+    if (co) {
+      detail = `<aside class="crm-company-drawer driver-card">
+        <div class="human-panel__head">
+          <h4 class="title-sm">${esc(co.name)}</h4>
+          <button type="button" class="button-outline-on-dark button-sm" data-crm-company-close>Close</button>
+        </div>
+        <dl class="settings-kv">
+          <div class="settings-kv__row"><dt>Sector</dt><dd>${esc(co.sector || co.industry || "—")}</dd></div>
+          <div class="settings-kv__row"><dt>Status</dt><dd>${esc(co.status || "prospect")}</dd></div>
+          <div class="settings-kv__row"><dt>Website</dt><dd>${co.website ? `<a href="${esc(co.website)}" target="_blank" rel="noopener">${esc(co.website)}</a>` : "—"}</dd></div>
+        </dl>
+        ${co.research_summary ? `<p class="body-md" style="margin-top:var(--space-sm)">${esc(co.research_summary)}</p>` : ""}
+        ${co.notes ? `<p class="muted body-sm">${esc(co.notes)}</p>` : ""}
+        <p class="caption-uppercase" style="margin-top:var(--space-md)">Linked contacts (${contacts.length})</p>
+        <ul class="list-plain">${contacts.map(c => `<li>${esc(c.name)} — ${esc(c.role || "")} ${c.email ? `<span class="muted">${esc(c.email)}</span>` : ""}</li>`).join("") || "<li class='muted'>None</li>"}</ul>
+      </aside>`;
+    }
+  }
+
+  return `
+    <section class="driver-card span-12 human-panel">
+      <div class="human-panel__head">
+        <div>
+          <p class="section-eyebrow">Companies</p>
+          <h3 class="title-sm">Accounts in <span data-active-world-label>${esc(activeWorldLabel())}</span></h3>
+        </div>
+        <button type="button" class="button-primary button-sm" data-toggle-ui="crmCompanyFormOpen">${formOpen ? "Hide form" : "Add company"}</button>
+      </div>
+      ${formOpen ? `
+      <form class="human-form" id="crm-company-form">
+        <div class="human-form__row">
+          <label class="human-field"><span class="caption-uppercase">Name</span>
+            <input class="text-input-on-dark" name="name" required placeholder="Company name"></label>
+          <label class="human-field"><span class="caption-uppercase">World</span>
+            <select class="text-input-on-dark" name="world_id" required>${renderWorldOptionsForCrm(wid)}</select></label>
+        </div>
+        <div class="human-form__row">
+          <label class="human-field"><span class="caption-uppercase">Sector</span>
+            <input class="text-input-on-dark" name="sector" placeholder="e.g. Manufacturing"></label>
+          <label class="human-field"><span class="caption-uppercase">Status</span>
+            <select class="text-input-on-dark" name="status">${statusOpts("prospect")}</select></label>
+        </div>
+        <div class="human-form__row">
+          <label class="human-field"><span class="caption-uppercase">Website</span>
+            <input class="text-input-on-dark" name="website" placeholder="https://…"></label>
+          <label class="human-field"><span class="caption-uppercase">LinkedIn</span>
+            <input class="text-input-on-dark" name="linkedin_url" placeholder="https://linkedin.com/company/…"></label>
+        </div>
+        <label class="human-field"><span class="caption-uppercase">Notes</span>
+          <textarea class="text-input-on-dark" name="notes" rows="2"></textarea></label>
+        <div class="human-form__actions">
+          <button type="submit" class="button-primary button-sm">Save company</button>
+          <button type="button" class="button-outline-on-dark button-sm" data-toggle-ui="crmCompanyFormOpen">Cancel</button>
+        </div>
+      </form>` : ""}
     </section>
+    <section class="band-light span-12 crm-companies-layout">
+      <div class="table-wrap"><table><thead><tr><th>Name</th><th>Sector</th><th>Status</th><th>Contacts</th><th>Last contact</th></tr></thead>
+      <tbody>${rows || '<tr><td colspan="5" class="muted">No companies in this world yet.</td></tr>'}</tbody></table></div>
+      ${detail}
+    </section>`;
+}
+
+function renderCrmPipelinePanel() {
+  const pipeline = state._crm?.pipeline || {};
+  const pipeRows = Object.entries(pipeline).map(([k, v]) =>
+    `<div class="kv"><span class="k">${esc(k)}</span><span class="v">${v}</span></div>`
+  ).join("") || "<p class='muted'>No pipeline data</p>";
+  const companies = state._crmCompanies?.companies || [];
+  const byStatus = {};
+  companies.forEach(co => {
+    const s = co.status || "prospect";
+    byStatus[s] = (byStatus[s] || 0) + 1;
+  });
+  const coRows = Object.entries(byStatus).map(([k, v]) =>
+    `<div class="kv"><span class="k">${esc(k)}</span><span class="v">${v} companies</span></div>`
+  ).join("") || "<p class='muted'>No company pipeline data</p>";
+
+  return `<section class="driver-card span-6"><p class="caption-uppercase">Contact pipeline</p><div style="margin-top:var(--space-sm)">${pipeRows}</div></section>
+    <section class="driver-card span-6"><p class="caption-uppercase">Company pipeline</p><div style="margin-top:var(--space-sm)">${coRows}</div></section>`;
+}
+
+function renderCrmOutreachPanel() {
+  return state._crmOutreachHtml || `<section class="driver-card span-12">
+    <p class="section-eyebrow">Outreach</p>
+    <h3 class="title-sm">Batch outreach</h3>
+    <p class="body-md muted">Loading outreach console…</p>
+  </section>`;
+}
+
+function renderCrm() {
+  const tab = crmTab();
+  let body = "";
+  if (tab === "contacts") body = renderCrmContactsPanel();
+  else if (tab === "companies") body = renderCrmCompaniesPanel();
+  else if (tab === "pipeline") body = renderCrmPipelinePanel();
+  else body = renderCrmOutreachPanel();
+
+  return `<div class="dashboard-grid">
+    <section class="driver-card span-12 human-panel">
+      <div class="human-panel__head">
+        <div>
+          <p class="section-eyebrow">CRM</p>
+          <h3 class="title-sm">Relationships &amp; outreach</h3>
+        </div>
+      </div>
+      ${renderCrmTabs()}
+    </section>
+    ${body}
   </div>`;
 }
 
@@ -3407,8 +3566,19 @@ function renderSettings() {
 
 // ── Navigation ───────────────────────────────────────────────────────────────
 
+async function loadCrmData() {
+  const wid = currentWorldId();
+  const worldQ = wid && wid !== "root" ? `?world_id=${encodeURIComponent(wid)}` : "";
+  const [crm, companies] = await Promise.all([
+    api("/crm/contacts"),
+    api(`/crm/companies${worldQ}`).catch(() => ({ companies: [] })),
+  ]);
+  state._crm = crm;
+  state._crmCompanies = companies;
+}
+
 async function loadViewData(view) {
-  if (view === "crm") state._crm = await api("/crm/contacts");
+  if (view === "crm") await loadCrmData();
   if (view === "settings") {
     state._whatsapp = await api("/whatsapp/status").catch(() => ({}));
     if (state._whatsapp.qr_pending) {
@@ -3706,7 +3876,8 @@ function initContentDelegation() {
       + "[data-chat-session],[data-cancel-job],[data-cancel-active-job],[data-md-artifact],[data-open-document],"
       + "[data-select-document],[data-docs-action],[data-tag-vault-doc],[data-nudge-index],"
       + "[data-remove-attachment],[data-open-vault-picker],[data-pick-vault-doc],"
-      + "[data-crm-followup],[data-crm-wa-thread],[data-reminder-done],[data-reminder-cancel],[data-notif-action],"
+      + "[data-crm-followup],[data-crm-wa-thread],[data-crm-tab],[data-crm-company-detail],[data-crm-company-close],"
+      + "[data-crm-outreach-start],[data-crm-campaign],[data-crm-draft-approve],[data-crm-draft-skip],[data-crm-company-toggle],"
       + "[data-msg-read-more],"
       + "#chat-send,#chat-clear,#memory-search,#toggle-pause,#agents-vault-search,"
       + "#delegate-selected-btn,#btn-logout,#btn-infra-refresh"
@@ -3816,6 +3987,18 @@ function initContentDelegation() {
       $("#vault-picker-dialog")?.close();
       return;
     }
+    if (el.dataset.crmTab) {
+      if (!state.ui) state.ui = {};
+      state.ui.crmTab = el.dataset.crmTab;
+      localStorage.setItem("fos_crm_tab", state.ui.crmTab);
+      return loadCrmData().then(() => render());
+    }
+    if (el.dataset.crmCompanyDetail) return openCrmCompanyDetail(el.dataset.crmCompanyDetail);
+    if (el.dataset.crmCompanyClose !== undefined) {
+      if (state.ui) state.ui.crmCompanyDetail = null;
+      state._crmCompanyDetail = null;
+      return render();
+    }
     if (el.dataset.crmFollowup) return scheduleCrmFollowup(el.dataset.crmFollowup, el.dataset.followupDays);
     if (el.dataset.crmWaThread) return loadCrmWaThread(el.dataset.crmWaThread);
     if (el.dataset.reminderDone) return updateReminderStatus(el.dataset.reminderDone, "done");
@@ -3879,6 +4062,7 @@ function initContentDelegation() {
     const handlers = {
       "world-create-form": createWorldFromForm,
       "crm-create-form": submitCrmContact,
+      "crm-company-form": submitCrmCompany,
       "goal-create-form": submitGoal,
       "reminder-create-form": submitReminder,
       "agent-config-form": saveAgentConfig,
@@ -3982,12 +4166,13 @@ async function submitCrmContact(form) {
   const fd = new FormData(form);
   const name = (fd.get("name") || "").toString().trim();
   if (!name) return;
+  const companyId = (fd.get("company_id") || "").toString().trim();
   try {
     await api("/crm/contacts", {
       method: "POST",
       body: JSON.stringify({
         name,
-        company: (fd.get("company") || "").toString().trim(),
+        company_id: companyId ? parseInt(companyId, 10) : null,
         role: (fd.get("role") || "").toString().trim(),
         email: (fd.get("email") || "").toString().trim(),
         status: (fd.get("status") || "prospect").toString(),
@@ -3997,11 +4182,47 @@ async function submitCrmContact(form) {
         notes: (fd.get("notes") || "").toString().trim(),
       }),
     });
-    state._crm = await api("/crm/contacts");
+    await loadCrmData();
     if (state.ui) state.ui.crmFormOpen = false;
     await refresh();
     render();
     form.reset();
+  } catch (e) { alert(e.message); }
+}
+
+async function submitCrmCompany(form) {
+  const fd = new FormData(form);
+  const name = (fd.get("name") || "").toString().trim();
+  const world_id = (fd.get("world_id") || "").toString().trim();
+  if (!name || !world_id) return;
+  try {
+    await api("/crm/companies", {
+      method: "POST",
+      body: JSON.stringify({
+        name,
+        world_id,
+        sector: (fd.get("sector") || "").toString().trim(),
+        status: (fd.get("status") || "prospect").toString(),
+        website: (fd.get("website") || "").toString().trim(),
+        linkedin_url: (fd.get("linkedin_url") || "").toString().trim(),
+        notes: (fd.get("notes") || "").toString().trim(),
+      }),
+    });
+    await loadCrmData();
+    if (state.ui) state.ui.crmCompanyFormOpen = false;
+    render();
+    form.reset();
+  } catch (e) { alert(e.message); }
+}
+
+async function openCrmCompanyDetail(cid) {
+  if (!cid) return;
+  try {
+    const res = await api(`/crm/companies/${encodeURIComponent(cid)}`);
+    state._crmCompanyDetail = res;
+    if (!state.ui) state.ui = {};
+    state.ui.crmCompanyDetail = cid;
+    render();
   } catch (e) { alert(e.message); }
 }
 

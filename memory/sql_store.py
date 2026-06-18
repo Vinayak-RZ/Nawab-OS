@@ -104,6 +104,8 @@ def init_db():
     """)
     conn.commit()
     _migrate_contacts(conn)
+    _migrate_companies(conn)
+    _migrate_outreach(conn)
     conn.close()
 
 
@@ -113,6 +115,29 @@ def _migrate_contacts(conn=None):
         conn = get_conn()
     for stmt in (
         "ALTER TABLE contacts ADD COLUMN whatsapp_enabled INTEGER DEFAULT 0",
+        "ALTER TABLE contacts ADD COLUMN company_id INTEGER REFERENCES companies(id)",
+    ):
+        try:
+            conn.execute(stmt)
+        except Exception:
+            pass
+    if own:
+        conn.commit()
+    _backfill_contact_company_ids(conn)
+    if own:
+        conn.close()
+
+
+def _migrate_companies(conn=None):
+    own = conn is None
+    if own:
+        conn = get_conn()
+    for stmt in (
+        "ALTER TABLE companies ADD COLUMN world_id TEXT",
+        "ALTER TABLE companies ADD COLUMN sector TEXT",
+        "ALTER TABLE companies ADD COLUMN linkedin_url TEXT",
+        "ALTER TABLE companies ADD COLUMN status TEXT DEFAULT 'prospect'",
+        "ALTER TABLE companies ADD COLUMN last_contacted_at TIMESTAMP",
     ):
         try:
             conn.execute(stmt)
@@ -123,20 +148,94 @@ def _migrate_contacts(conn=None):
         conn.close()
 
 
+def _migrate_outreach(conn=None):
+    own = conn is None
+    if own:
+        conn = get_conn()
+    conn.executescript("""
+    CREATE TABLE IF NOT EXISTS outreach_campaigns (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        world_id TEXT NOT NULL,
+        name TEXT NOT NULL,
+        batch_size INTEGER DEFAULT 5,
+        brief TEXT DEFAULT '',
+        status TEXT DEFAULT 'created',
+        strategy_json TEXT DEFAULT '',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE TABLE IF NOT EXISTS outreach_campaign_companies (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        campaign_id INTEGER NOT NULL REFERENCES outreach_campaigns(id),
+        company_id INTEGER NOT NULL REFERENCES companies(id),
+        sort_order INTEGER DEFAULT 0,
+        status TEXT DEFAULT 'pending',
+        research_json TEXT DEFAULT '',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(campaign_id, company_id)
+    );
+    CREATE TABLE IF NOT EXISTS outreach_drafts (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        campaign_id INTEGER NOT NULL REFERENCES outreach_campaigns(id),
+        company_id INTEGER NOT NULL REFERENCES companies(id),
+        contact_id INTEGER REFERENCES contacts(id),
+        channel TEXT NOT NULL,
+        subject TEXT DEFAULT '',
+        body TEXT DEFAULT '',
+        status TEXT DEFAULT 'draft',
+        personalization_notes TEXT DEFAULT '',
+        error_message TEXT DEFAULT '',
+        outreach_log_id INTEGER,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+    """)
+    for stmt in (
+        "ALTER TABLE outreach_log ADD COLUMN campaign_id INTEGER",
+    ):
+        try:
+            conn.execute(stmt)
+        except Exception:
+            pass
+    if own:
+        conn.commit()
+        conn.close()
+
+
+def _backfill_contact_company_ids(conn):
+    """Match contacts.company text to companies.name when company_id is unset."""
+    rows = conn.execute(
+        "SELECT id, company FROM contacts WHERE company_id IS NULL AND company IS NOT NULL AND company != ''"
+    ).fetchall()
+    for row in rows:
+        match = conn.execute(
+            "SELECT id FROM companies WHERE LOWER(TRIM(name)) = LOWER(TRIM(?)) LIMIT 1",
+            (row["company"],),
+        ).fetchone()
+        if match:
+            conn.execute("UPDATE contacts SET company_id = ? WHERE id = ?", (match["id"], row["id"]))
+    conn.commit()
+
+
 # ── CONTACTS ─────────────────────────────────────────────────────────────────
 
 def add_contact(name, company=None, role=None, email=None, linkedin_url=None,
                 phone=None, source=None, status="prospect", priority=3, notes=None,
-                whatsapp_enabled: int = 0) -> int:
+                whatsapp_enabled: int = 0, company_id: int = None) -> int:
     from integrations.phone import normalize_phone
     phone = normalize_phone(phone) if phone else None
     wa = 1 if whatsapp_enabled and phone else 0
+    if company_id:
+        co = get_company(int(company_id))
+        if co and not company:
+            company = co.get("name")
     conn = get_conn()
     c = conn.cursor()
-    c.execute("""INSERT INTO contacts (name, company, role, email, linkedin_url, phone, source,
+    c.execute("""INSERT INTO contacts (name, company, company_id, role, email, linkedin_url, phone, source,
                  status, priority, notes, whatsapp_enabled)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-              (name, company, role, email, linkedin_url, phone, source, status, priority, notes, wa))
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+              (name, company, company_id, role, email, linkedin_url, phone, source, status, priority, notes, wa))
     conn.commit()
     contact_id = c.lastrowid
     conn.close()
@@ -152,6 +251,10 @@ def update_contact(contact_id: int, **kwargs):
             row = get_contact(contact_id)
             if not row or not row.get("phone"):
                 kwargs["whatsapp_enabled"] = 0
+    if "company_id" in kwargs and kwargs["company_id"]:
+        co = get_company(int(kwargs["company_id"]))
+        if co:
+            kwargs.setdefault("company", co.get("name"))
     kwargs["updated_at"] = datetime.now().isoformat()
     conn = get_conn()
     sets = ", ".join(f"{k} = ?" for k in kwargs)
@@ -265,17 +368,88 @@ def get_recent_outreach(days: int = 7) -> list:
 
 # ── COMPANIES ─────────────────────────────────────────────────────────────────
 
+COMPANY_STATUSES = ("prospect", "contacted", "responded", "meeting_set", "closed", "dead")
+
+
 def add_company(name, website=None, industry=None, size=None, location=None,
-                description=None, research_summary=None, icp_score=None, notes=None) -> int:
+                description=None, research_summary=None, icp_score=None, notes=None,
+                world_id=None, sector=None, linkedin_url=None, status="prospect") -> int:
     conn = get_conn()
     c = conn.cursor()
-    c.execute("""INSERT INTO companies (name, website, industry, size, location, description, research_summary, icp_score, notes)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-              (name, website, industry, size, location, description, research_summary, icp_score, notes))
+    c.execute("""INSERT INTO companies (
+        name, website, industry, size, location, description, research_summary, icp_score, notes,
+        world_id, sector, linkedin_url, status, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+              (name, website, industry, size, location, description, research_summary, icp_score, notes,
+               world_id, sector or industry, linkedin_url, status or "prospect", datetime.now().isoformat()))
     conn.commit()
     company_id = c.lastrowid
     conn.close()
     return company_id
+
+
+def get_company(company_id: int) -> Optional[dict]:
+    conn = get_conn()
+    row = conn.execute("SELECT * FROM companies WHERE id = ?", (company_id,)).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def update_company(company_id: int, **kwargs):
+    allowed = {
+        "name", "website", "industry", "size", "location", "description", "research_summary",
+        "icp_score", "notes", "world_id", "sector", "linkedin_url", "status", "last_contacted_at",
+    }
+    payload = {k: v for k, v in kwargs.items() if k in allowed}
+    if not payload:
+        return
+    if "sector" in payload and payload["sector"] and "industry" not in payload:
+        payload["industry"] = payload["sector"]
+    payload["updated_at"] = datetime.now().isoformat()
+    conn = get_conn()
+    sets = ", ".join(f"{k} = ?" for k in payload)
+    conn.execute(f"UPDATE companies SET {sets} WHERE id = ?", (*payload.values(), company_id))
+    conn.commit()
+    conn.close()
+
+
+def get_all_companies(world_id: str = None, status: str = None, sector: str = None) -> list:
+    conn = get_conn()
+    q = "SELECT * FROM companies WHERE 1=1"
+    params: list = []
+    if world_id:
+        q += " AND world_id = ?"
+        params.append(world_id)
+    if status:
+        q += " AND status = ?"
+        params.append(status)
+    if sector:
+        q += " AND (sector = ? OR industry = ?)"
+        params.extend([sector, sector])
+    q += " ORDER BY updated_at DESC"
+    rows = conn.execute(q, params).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def get_company_contacts(company_id: int) -> list:
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT * FROM contacts WHERE company_id = ? ORDER BY updated_at DESC",
+        (company_id,),
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def company_contact_counts() -> dict:
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT company_id, COUNT(*) as n FROM contacts WHERE company_id IS NOT NULL GROUP BY company_id"
+    ).fetchall()
+    conn.close()
+    return {r["company_id"]: r["n"] for r in rows}
+
 
 def search_companies(query: str) -> list:
     conn = get_conn()

@@ -331,9 +331,16 @@ def api_contacts_create():
     except (TypeError, ValueError):
         priority = 3
     wa_on = bool(data.get("whatsapp_enabled"))
+    company_id = data.get("company_id")
+    if company_id is not None:
+        try:
+            company_id = int(company_id)
+        except (TypeError, ValueError):
+            company_id = None
     cid = add_contact(
         name=name,
         company=(data.get("company") or "").strip() or None,
+        company_id=company_id,
         role=(data.get("role") or "").strip() or None,
         email=(data.get("email") or "").strip() or None,
         linkedin_url=(data.get("linkedin_url") or "").strip() or None,
@@ -347,13 +354,89 @@ def api_contacts_create():
     return jsonify({"id": cid})
 
 
+@bp.route("/crm/companies")
+def api_companies_list():
+    from memory.sql_store import get_all_companies, company_contact_counts
+    world_id = (request.args.get("world_id") or "").strip() or None
+    status = (request.args.get("status") or "").strip() or None
+    sector = (request.args.get("sector") or "").strip() or None
+    companies = _safe(lambda: get_all_companies(world_id=world_id, status=status, sector=sector), [])
+    counts = _safe(company_contact_counts, {})
+    for co in companies:
+        co["contact_count"] = counts.get(co["id"], 0)
+    return jsonify({"companies": companies})
+
+
+@bp.route("/crm/companies", methods=["POST"])
+def api_companies_create():
+    from memory.sql_store import add_company
+    data = request.get_json(silent=True) or {}
+    name = (data.get("name") or "").strip()
+    world_id = (data.get("world_id") or "").strip()
+    if not name:
+        return jsonify({"error": "name is required"}), 400
+    if not world_id:
+        return jsonify({"error": "world_id is required"}), 400
+    cid = add_company(
+        name=name,
+        world_id=world_id,
+        website=(data.get("website") or "").strip() or None,
+        sector=(data.get("sector") or data.get("industry") or "").strip() or None,
+        industry=(data.get("industry") or data.get("sector") or "").strip() or None,
+        location=(data.get("location") or "").strip() or None,
+        description=(data.get("description") or "").strip() or None,
+        research_summary=(data.get("research_summary") or "").strip() or None,
+        linkedin_url=(data.get("linkedin_url") or "").strip() or None,
+        status=(data.get("status") or "prospect").strip(),
+        notes=(data.get("notes") or "").strip() or None,
+    )
+    return jsonify({"id": cid})
+
+
+@bp.route("/crm/companies/<int:cid>")
+def api_companies_detail(cid):
+    from memory.sql_store import get_company, get_company_contacts, company_contact_counts
+    co = get_company(cid)
+    if not co:
+        return jsonify({"error": "company not found"}), 404
+    counts = _safe(company_contact_counts, {})
+    co["contact_count"] = counts.get(cid, 0)
+    contacts = _safe(lambda: get_company_contacts(cid), [])
+    return jsonify({"company": co, "contacts": contacts})
+
+
+@bp.route("/crm/companies/<int:cid>", methods=["PATCH"])
+def api_companies_update(cid):
+    from memory.sql_store import get_company, update_company
+    data = request.get_json(silent=True) or {}
+    if not get_company(cid):
+        return jsonify({"error": "company not found"}), 404
+    allowed = {
+        "name", "website", "industry", "sector", "size", "location", "description",
+        "research_summary", "icp_score", "notes", "world_id", "linkedin_url", "status",
+    }
+    payload = {k: v for k, v in data.items() if k in allowed}
+    if not payload:
+        return jsonify({"error": "no valid fields"}), 400
+    update_company(cid, **payload)
+    return jsonify({"ok": True, "id": cid})
+
+
+@bp.route("/crm/companies/<int:cid>/contacts")
+def api_company_contacts(cid):
+    from memory.sql_store import get_company, get_company_contacts
+    if not get_company(cid):
+        return jsonify({"error": "company not found"}), 404
+    return jsonify({"contacts": _safe(lambda: get_company_contacts(cid), [])})
+
+
 @bp.route("/crm/contacts/<int:cid>", methods=["PATCH"])
 def api_contacts_update(cid):
     from memory.sql_store import update_contact, get_contact
     from integrations import whatsapp as wa
     data = request.get_json(silent=True) or {}
     allowed = {
-        "name", "company", "role", "email", "status", "priority", "notes",
+        "name", "company", "company_id", "role", "email", "status", "priority", "notes",
         "linkedin_url", "next_followup_at", "phone", "whatsapp_enabled",
     }
     payload = {k: v for k, v in data.items() if k in allowed}
