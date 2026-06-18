@@ -182,6 +182,26 @@ export function registerViewsOutreach(ctx) {
     });
   }
 
+  function fitOutreachTextarea(el) {
+    if (!el || el.tagName !== "TEXTAREA") return;
+    el.style.height = "0px";
+    const styles = getComputedStyle(el);
+    const min = parseFloat(styles.minHeight) || 112;
+    el.style.height = `${Math.max(min, el.scrollHeight)}px`;
+    el.style.overflowY = "hidden";
+  }
+
+  function fitAllOutreachTextareas(root = document) {
+    const els = [...root.querySelectorAll(".crm-draft-body--fit, .outreach-auto-textarea")];
+    if (!els.length) return;
+    const run = () => els.forEach(fitOutreachTextarea);
+    run();
+    requestAnimationFrame(() => {
+      run();
+      requestAnimationFrame(run);
+    });
+  }
+
   function draftApproveDisabledReason(d) {
     if (d.channel === "email") {
       if (!(d.subject || "").trim()) return "Subject required";
@@ -269,16 +289,16 @@ export function registerViewsOutreach(ctx) {
     const draftCard = (d) => {
       const reason = ctx.draftApproveDisabledReason(d);
       const waLen = (d.body || "").length;
-      return `<div class="crm-draft-card driver-card" data-draft-id="${d.id}">
+      return `<div class="crm-draft-card driver-card outreach-draft-card" data-draft-id="${d.id}">
         <div class="crm-draft-card__head">
           <p class="caption-uppercase">${d.channel === "email" ? "Gmail" : "WhatsApp"} → ${ctx.esc(d.contact_name || "Contact")}</p>
           ${d.channel === "email" ? `<span class="muted body-sm">${ctx.esc(d.email || "")}</span>` : `<span class="muted body-sm">${ctx.esc(d.phone || "")}</span>`}
         </div>
-        ${d.personalization_notes ? `<p class="body-sm muted">${ctx.esc(d.personalization_notes)}</p>` : ""}
-        ${d.channel === "email" ? `<label class="human-field"><span class="caption-uppercase">Subject</span>
+        ${d.personalization_notes ? `<p class="body-md muted outreach-draft-notes">${ctx.esc(d.personalization_notes)}</p>` : ""}
+        ${d.channel === "email" ? `<label class="human-field outreach-draft-field"><span class="caption-uppercase">Subject</span>
           <input class="text-input-on-dark crm-draft-subject" data-draft-id="${d.id}" value="${ctx.esc(d.subject || "")}"></label>` : ""}
-        <label class="human-field"><span class="caption-uppercase">Message</span>
-          <textarea class="text-input-on-dark crm-draft-body" data-draft-id="${d.id}" data-channel="${ctx.esc(d.channel)}" rows="${d.channel === "whatsapp" ? 3 : 6}">${ctx.esc(d.body || "")}</textarea>
+        <label class="human-field outreach-draft-field"><span class="caption-uppercase">Message</span>
+          <textarea class="text-input-on-dark crm-draft-body crm-draft-body--fit" data-draft-id="${d.id}" data-channel="${ctx.esc(d.channel)}" rows="1">${ctx.esc(d.body || "")}</textarea>
           ${d.channel === "whatsapp" ? `<span class="caption muted crm-wa-count" data-draft-id="${d.id}">${waLen}/300</span>` : ""}
         </label>
         <div class="human-form__actions">
@@ -290,7 +310,7 @@ export function registerViewsOutreach(ctx) {
       </div>`;
     };
 
-    return `<section class="driver-card span-12">
+    return `<section class="driver-card span-12 outreach-review">
       <div class="human-panel__head">
         <div>
           <p class="section-eyebrow">Review &amp; send</p>
@@ -312,7 +332,7 @@ export function registerViewsOutreach(ctx) {
         <summary class="caption-uppercase">Cohort strategy</summary>
         <pre class="body-sm muted" style="white-space:pre-wrap">${ctx.esc(JSON.stringify(strategy, null, 2))}</pre>
       </details>
-      ${co ? `<div class="crm-company-review driver-card">
+      ${co ? `<div class="crm-company-review driver-card outreach-company-review">
         <div class="human-panel__head">
           <h4 class="title-sm">${ctx.esc(coLabel)}</h4>
           <button type="button" class="button-outline-on-dark button-sm" data-crm-skip-company="${co.company_id}">Skip company</button>
@@ -443,7 +463,7 @@ export function registerViewsOutreach(ctx) {
             <select class="text-input-on-dark" name="batch_size" id="crm-outreach-batch">${batchOpts}</select></label>
         </div>
         <label class="human-field"><span class="caption-uppercase">Outreach brief</span>
-          <textarea class="text-input-on-dark" name="brief" rows="3" placeholder="e.g. Indian manufacturing SMBs — energy cost savings, 15-min discovery call, direct tone"></textarea></label>
+          <textarea class="text-input-on-dark outreach-auto-textarea" name="brief" rows="1" placeholder="e.g. Indian manufacturing SMBs — energy cost savings, 15-min discovery call, direct tone"></textarea></label>
         ${loading ? `<p class="muted body-sm">Loading companies…</p>` : companyPicker}
         <div class="human-form__actions outreach-setup-actions">
           <button type="submit" id="outreach-start-btn" class="button-primary" ${canStart ? "" : "disabled"}${dirty ? ' title="Save your company selection before starting"' : !savedN ? ' title="Select and save at least one company"' : ""}>
@@ -668,6 +688,8 @@ export function registerViewsOutreach(ctx) {
   ctx.pollCrmOutreachJob = pollCrmOutreachJob;
   ctx.openCrmCampaignReview = openCrmCampaignReview;
   ctx.closeCrmCampaignReview = closeCrmCampaignReview;
+  ctx.fitOutreachTextarea = fitOutreachTextarea;
+  ctx.fitAllOutreachTextareas = fitAllOutreachTextareas;
   ctx.toggleOutreachDraftCompany = toggleOutreachDraftCompany;
   ctx.saveOutreachCompanySelection = saveOutreachCompanySelection;
   ctx.setOutreachBatchSize = setOutreachBatchSize;

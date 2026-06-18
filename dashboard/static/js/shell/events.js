@@ -294,6 +294,9 @@ export function registerShellEvents(ctx) {
       if (e.target.id === "outreach-company-search") {
         ctx.filterOutreachCompanyList(e.target.value);
       }
+      if (e.target.matches(".crm-draft-body--fit, .outreach-auto-textarea")) {
+        ctx.fitOutreachTextarea?.(e.target);
+      }
       if (e.target.matches(".crm-draft-body[data-channel='whatsapp']")) {
         const id = e.target.dataset.draftId;
         const counter = document.querySelector(`.crm-wa-count[data-draft-id="${id}"]`);

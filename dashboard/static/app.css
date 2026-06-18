@@ -3631,6 +3631,63 @@ button.is-loading,
   margin-bottom: var(--space-md);
   padding: var(--space-md);
 }
+
+/* Outreach review — larger draft cards + auto-height message fields */
+.outreach-review .outreach-draft-card {
+  padding: var(--space-lg);
+  margin-bottom: var(--space-lg);
+  border-radius: var(--radius-lg, var(--radius-md));
+}
+.outreach-review .outreach-draft-field {
+  gap: 8px;
+  margin-top: var(--space-sm);
+}
+.outreach-review .outreach-draft-notes {
+  margin: var(--space-sm) 0 var(--space-md);
+  line-height: 1.55;
+}
+.outreach-review .crm-draft-subject,
+.outreach-review .crm-draft-body--fit {
+  font-size: 0.9375rem;
+  line-height: 1.55;
+  padding: 14px 16px;
+}
+.outreach-review .crm-draft-subject {
+  min-height: 48px;
+}
+.outreach-review .crm-draft-body--fit,
+.outreach-setup .outreach-auto-textarea {
+  min-height: 140px;
+  max-height: none;
+  overflow-y: hidden;
+  resize: none;
+  field-sizing: content;
+}
+@supports not (field-sizing: content) {
+  .outreach-review .crm-draft-body--fit,
+  .outreach-setup .outreach-auto-textarea {
+    height: auto;
+  }
+}
+.outreach-review .outreach-company-review {
+  padding: var(--space-lg);
+  margin: var(--space-lg) 0;
+  border-radius: var(--radius-lg, var(--radius-md));
+}
+.outreach-review .outreach-company-review .body-sm,
+.outreach-review .outreach-company-review .body-md {
+  line-height: 1.55;
+  font-size: 0.9375rem;
+}
+.outreach-review .human-form__actions {
+  margin-top: var(--space-md);
+  gap: var(--space-sm);
+}
+.outreach-review .human-form__actions .button-sm {
+  padding: 0.55rem 1rem;
+  font-size: 0.875rem;
+}
+
 .crm-strategy-details summary {
   cursor: pointer;
   margin-bottom: var(--space-xs);

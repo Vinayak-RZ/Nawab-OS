@@ -100,6 +100,10 @@ export function registerShellNavigation(ctx) {
     ctx.startWhatsappPollIfNeeded();
     if (ctx.currentView === "outreach" && ctx.outreachStep?.() === "setup") {
       ctx.syncOutreachCompanyPickerUi?.();
+      ctx.fitAllOutreachTextareas?.();
+    }
+    if (ctx.currentView === "outreach" && ctx.outreachStep?.() === "review") {
+      ctx.fitAllOutreachTextareas?.();
     }
   }
 
