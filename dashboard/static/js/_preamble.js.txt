@@ -1,0 +1,6 @@
+/* Nawab OS Web UI */
+
+const APP_NAME = "Nawab OS";
+const $ = (s, el = document) => el.querySelector(s);
+const $$ = (s, el = document) => [...el.querySelectorAll(s)];
+
