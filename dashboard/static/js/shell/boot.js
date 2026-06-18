@@ -126,14 +126,16 @@ export function registerShellBoot(ctx) {
   }
 
   async function startApp() {
+    ctx.applyBootUrlParams();
+    ctx.$$(".nav button").forEach(b => b.classList.toggle("is-active", b.dataset.view === ctx.currentView));
+    ctx.$("#view-title").textContent = ctx.TITLES[ctx.currentView] || ctx.currentView;
+    ctx.syncMobileNav(ctx.currentView);
     try {
       await ctx.refresh(true);
     } catch (e) {
       ctx.showBootError(e);
       return;
     }
-    ctx.applyBootUrlParams();
-    ctx.syncMobileNav(ctx.currentView);
     const gen = ++ctx.viewDataLoadGen;
     ctx.setViewLoading(true);
     ctx.render({ post: false });
