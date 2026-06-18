@@ -74,6 +74,15 @@ export function registerViewsOutreach(ctx) {
     const draftEl = document.getElementById("outreach-draft-count");
     if (draftEl) draftEl.textContent = String(draft.size);
 
+    const batchMaxEl = document.getElementById("outreach-batch-max");
+    if (batchMaxEl) batchMaxEl.textContent = ` / ${batch}`;
+
+    const meterEl = document.getElementById("outreach-select-meter");
+    if (meterEl) {
+      meterEl.setAttribute("aria-valuenow", String(draft.size));
+      meterEl.setAttribute("aria-valuemax", String(batch));
+    }
+
     const savedEl = document.getElementById("outreach-saved-count");
     if (savedEl) savedEl.textContent = String(savedN);
 
@@ -394,7 +403,7 @@ export function registerViewsOutreach(ctx) {
               <p class="caption-uppercase">Companies</p>
               <div class="outreach-picker-toolbar__counts">
                 <span class="outreach-count-pill" title="Currently selected (not yet saved)">
-                  <strong id="outreach-draft-count">${draft.size}</strong><span class="muted"> / ${batchSize}</span>
+                  <strong id="outreach-draft-count">${draft.size}</strong><span class="muted" id="outreach-batch-max"> / ${batchSize}</span>
                 </span>
                 <span class="outreach-count-pill outreach-count-pill--saved" title="Saved for this campaign">
                   <strong id="outreach-saved-count">${savedN}</strong> saved
@@ -402,7 +411,7 @@ export function registerViewsOutreach(ctx) {
                 <span id="outreach-selection-dirty" class="outreach-dirty-badge"${dirty ? "" : " hidden"}>Unsaved</span>
               </div>
             </div>
-            <div class="outreach-select-meter" role="progressbar" aria-valuenow="${draft.size}" aria-valuemin="0" aria-valuemax="${batchSize}" aria-label="Selection progress">
+            <div class="outreach-select-meter" id="outreach-select-meter" role="progressbar" aria-valuenow="${draft.size}" aria-valuemin="0" aria-valuemax="${batchSize}" aria-label="Selection progress">
               <div class="outreach-select-meter__fill" style="width:${Math.min(100, (draft.size / batchSize) * 100)}%"></div>
             </div>
             <p class="body-sm muted" id="outreach-batch-hint">${draft.size >= batchSize ? `Batch limit reached (${batchSize})` : `Pick up to ${batchSize}, then save`}</p>
