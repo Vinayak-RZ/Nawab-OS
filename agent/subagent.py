@@ -26,7 +26,7 @@ SPECIALISTS = {
     "outreach": {
         "label": "Outreach",
         "role": "outreach",
-        "skills": ["lead-generation"],
+        "skills": ["lead-generation", "direct-response-copy", "b2b-cold-email", "whatsapp-outreach"],
         "categories": {"outreach", "crm"},
         "brief": "Outreach specialist — draft sharp, personalized messages and manage CRM "
                  "pipeline. Sending stays approval-gated. Primary use case for Founder OS.",
@@ -96,7 +96,15 @@ async def run_subagent(name: str, task: str, actor: str = "subagent", on_status=
         f"actionable summaries for the supervisor. Do not chit-chat."
     )
     if spec.get("skills"):
-        system += f"\nRelevant skills: {', '.join(spec['skills'])}."
+        try:
+            from agent.skill_loader import load_skill_bodies
+            bodies = load_skill_bodies(spec["skills"], max_chars=3500)
+            if bodies:
+                system += f"\n\n[SKILL PLAYBOOKS]\n{bodies}"
+            else:
+                system += f"\nRelevant skills: {', '.join(spec['skills'])}."
+        except Exception:
+            system += f"\nRelevant skills: {', '.join(spec['skills'])}."
     if world_block:
         system += f"\n\n[ACTIVE WORLD CONTEXT]\n{world_block}"
     schemas = registry.schemas_for(spec["categories"])

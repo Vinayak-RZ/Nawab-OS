@@ -20,9 +20,9 @@ def test_send_whatsapp_always_requires_approval(monkeypatch):
     assert policy.decide(tool, {}) == "approve"
 
 
-def test_send_email_can_auto_at_autonomous(monkeypatch):
+def test_send_email_always_requires_approval_for_cold_outreach(monkeypatch):
     from config import config
     monkeypatch.setattr(config, "auto_approve", True)
     monkeypatch.setattr(config, "autonomy_level", "autonomous")
     tool = _FakeTool("send_email", requires_approval=True)
-    assert policy.decide(tool, {}) == "allow"
+    assert policy.decide(tool, {}) == "approve"

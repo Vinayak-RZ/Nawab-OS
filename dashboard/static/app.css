@@ -3526,6 +3526,24 @@ button.is-loading,
 .crm-company-drawer {
   padding: var(--space-md);
 }
+.crm-company-checklist {
+  display: grid;
+  gap: var(--space-xs);
+  max-height: 240px;
+  overflow: auto;
+  margin: var(--space-sm) 0;
+  padding: var(--space-sm);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+.crm-draft-card {
+  margin-bottom: var(--space-md);
+  padding: var(--space-md);
+}
+.crm-strategy-details summary {
+  cursor: pointer;
+  margin-bottom: var(--space-xs);
+}
 
 .reminder-row__actions {
   display: flex;

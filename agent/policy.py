@@ -20,6 +20,8 @@ _WRITE_TOOLS = {
 
 # WhatsApp outbound is always approval-gated — no autonomy bypass.
 _WHATSAPP_TOOLS = {"send_whatsapp"}
+# Cold outreach sends only via CRM campaign approve-send — never auto from agent loop.
+_COLD_OUTREACH_TOOLS = {"send_email", "send_whatsapp"}
 
 
 def decide(tool, args: dict) -> str:
@@ -28,6 +30,9 @@ def decide(tool, args: dict) -> str:
     level = (config.autonomy_level or "balanced").lower()
 
     if getattr(tool, "name", None) in _WHATSAPP_TOOLS:
+        return "approve"
+
+    if getattr(tool, "name", None) in _COLD_OUTREACH_TOOLS:
         return "approve"
 
     if getattr(tool, "requires_approval", False):

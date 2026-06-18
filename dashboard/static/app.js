@@ -3136,10 +3136,99 @@ function renderCrmPipelinePanel() {
 }
 
 function renderCrmOutreachPanel() {
-  return state._crmOutreachHtml || `<section class="driver-card span-12">
+  const campaigns = state._crmCampaigns?.campaigns || [];
+  const activeId = state.ui?.crmCampaignId;
+  const review = state._crmCampaignReview;
+  const wid = currentWorldId();
+  const companies = (state._crmCompanies?.companies || []).filter(c => c.status === "prospect" || !c.status);
+  const batchSize = state.ui?.crmOutreachBatch || 5;
+  const selected = new Set(state.ui?.crmOutreachSelected || []);
+
+  if (review?.campaign) {
+    const camp = review.campaign;
+    const strategy = review.strategy || {};
+    const co = review.current_company;
+    const research = review.current_research || {};
+    const drafts = review.current_drafts || [];
+    const emailDrafts = drafts.filter(d => d.channel === "email");
+    const waDrafts = drafts.filter(d => d.channel === "whatsapp");
+
+    const draftCard = (d) => `<div class="crm-draft-card driver-card" data-draft-id="${d.id}">
+      <p class="caption-uppercase">${esc(d.channel)} → ${esc(d.contact_name || "Contact")}</p>
+      ${d.channel === "email" ? `<label class="human-field"><span class="caption-uppercase">Subject</span>
+        <input class="text-input-on-dark crm-draft-subject" data-draft-id="${d.id}" value="${esc(d.subject || "")}"></label>` : ""}
+      <label class="human-field"><span class="caption-uppercase">Message</span>
+        <textarea class="text-input-on-dark crm-draft-body" data-draft-id="${d.id}" rows="${d.channel === "whatsapp" ? 3 : 6}">${esc(d.body || "")}</textarea></label>
+      <div class="human-form__actions">
+        <button type="button" class="button-primary button-sm" data-crm-draft-approve="${d.id}">Approve &amp; Send</button>
+        <button type="button" class="button-outline-on-dark button-sm" data-crm-draft-skip="${d.id}">Skip</button>
+      </div>
+      ${d.error_message ? `<p class="muted">${esc(d.error_message)}</p>` : ""}
+    </div>`;
+
+    return `<section class="driver-card span-12">
+      <div class="human-panel__head">
+        <div>
+          <p class="section-eyebrow">Review</p>
+          <h3 class="title-sm">${esc(camp.name || "Campaign")}</h3>
+          <p class="muted body-sm">${review.pending_count || 0} messages remaining</p>
+        </div>
+        <button type="button" class="button-outline-on-dark button-sm" data-crm-outreach-back>Back to list</button>
+      </div>
+      <details class="crm-strategy-details" style="margin-bottom:var(--space-md)">
+        <summary class="caption-uppercase">Strategy</summary>
+        <pre class="body-sm muted" style="white-space:pre-wrap">${esc(JSON.stringify(strategy, null, 2))}</pre>
+      </details>
+      ${co ? `<div class="driver-card" style="margin-bottom:var(--space-md)">
+        <h4 class="title-sm">${esc(co.company_name || co.name || "Company")}</h4>
+        <p class="body-sm muted">${esc(research.sector || "")}</p>
+        ${(research.web_hits || []).slice(0, 2).map(w => `<p class="body-sm">• ${esc(w.snippet || w.title || "")}</p>`).join("")}
+        ${(research.vault_files_used || []).length ? `<p class="caption-uppercase">Vault files used</p><ul class="list-plain">${research.vault_files_used.map(f => `<li>${esc(f.title || f.doc_id)}</li>`).join("")}</ul>` : ""}
+      </div>` : "<p class='muted'>All messages handled — campaign complete.</p>"}
+      ${emailDrafts.map(draftCard).join("")}
+      ${waDrafts.map(draftCard).join("")}
+    </section>`;
+  }
+
+  const companyChecks = companies.slice(0, 80).map(co => {
+    const on = selected.has(co.id);
+    return `<label class="crm-company-check human-field--checkbox">
+      <input type="checkbox" data-crm-company-toggle="${co.id}" ${on ? "checked" : ""} ${selected.size >= batchSize && !on ? "disabled" : ""}>
+      <span>${esc(co.name)} <span class="muted">${esc(co.sector || "")}</span></span>
+    </label>`;
+  }).join("") || "<p class='muted'>No prospect companies in this world — add companies first.</p>";
+
+  const batchOpts = [5, 10, 15, 20].map(n =>
+    `<option value="${n}"${batchSize === n ? " selected" : ""}>${n}</option>`
+  ).join("");
+
+  const history = campaigns.slice(0, 10).map(c => `<li>
+    <button type="button" class="button-tertiary-text" data-crm-campaign="${c.id}">${esc(c.name)}</button>
+    <span class="muted"> — ${esc(c.status)}</span>
+  </li>`).join("") || "<li class='muted'>No campaigns yet</li>";
+
+  return `<section class="driver-card span-12 human-panel">
     <p class="section-eyebrow">Outreach</p>
-    <h3 class="title-sm">Batch outreach</h3>
-    <p class="body-md muted">Loading outreach console…</p>
+    <h3 class="title-sm">Start batch outreach</h3>
+    <p class="body-md muted">Research via knowledge tree + web, draft email &amp; WhatsApp per contact. You approve each send.</p>
+    ${state._crmOutreachJob?.phase ? `<p class="badge-pill">${esc(state._crmOutreachJob.phase)}</p>` : ""}
+    <form class="human-form" id="crm-outreach-form" style="margin-top:var(--space-md)">
+      <div class="human-form__row">
+        <label class="human-field"><span class="caption-uppercase">World</span>
+          <select class="text-input-on-dark" name="world_id">${renderWorldOptionsForCrm(wid)}</select></label>
+        <label class="human-field"><span class="caption-uppercase">Batch size</span>
+          <select class="text-input-on-dark" name="batch_size" id="crm-outreach-batch">${batchOpts}</select></label>
+      </div>
+      <label class="human-field"><span class="caption-uppercase">Brief</span>
+        <textarea class="text-input-on-dark" name="brief" rows="3" placeholder="What kind of message? Sector angle, offer, tone…"></textarea></label>
+      <p class="caption-uppercase">Companies (${selected.size}/${batchSize})</p>
+      <div class="crm-company-checklist">${companyChecks}</div>
+      <div class="human-form__actions">
+        <button type="submit" class="button-primary button-sm" data-crm-outreach-start ${selected.size ? "" : "disabled"}>Start outreach</button>
+      </div>
+    </form>
+    <p class="caption-uppercase" style="margin-top:var(--space-lg)">Recent campaigns</p>
+    <ul class="list-plain">${history}</ul>
   </section>`;
 }
 
@@ -3569,12 +3658,20 @@ function renderSettings() {
 async function loadCrmData() {
   const wid = currentWorldId();
   const worldQ = wid && wid !== "root" ? `?world_id=${encodeURIComponent(wid)}` : "";
-  const [crm, companies] = await Promise.all([
+  const tab = crmTab();
+  const [crm, companies, campaigns] = await Promise.all([
     api("/crm/contacts"),
     api(`/crm/companies${worldQ}`).catch(() => ({ companies: [] })),
+    tab === "outreach" ? api(`/crm/outreach/campaigns${worldQ}`).catch(() => ({ campaigns: [] })) : Promise.resolve(state._crmCampaigns || { campaigns: [] }),
   ]);
   state._crm = crm;
   state._crmCompanies = companies;
+  if (tab === "outreach") {
+    state._crmCampaigns = campaigns;
+    if (state.ui?.crmCampaignId) {
+      state._crmCampaignReview = await api(`/crm/outreach/campaigns/${state.ui.crmCampaignId}/review`).catch(() => null);
+    }
+  }
 }
 
 async function loadViewData(view) {
@@ -4001,6 +4098,10 @@ function initContentDelegation() {
     }
     if (el.dataset.crmFollowup) return scheduleCrmFollowup(el.dataset.crmFollowup, el.dataset.followupDays);
     if (el.dataset.crmWaThread) return loadCrmWaThread(el.dataset.crmWaThread);
+    if (el.dataset.crmCampaign) return openCrmCampaignReview(el.dataset.crmCampaign);
+    if (el.hasAttribute("data-crm-outreach-back")) return closeCrmCampaignReview();
+    if (el.dataset.crmDraftApprove) return approveCrmDraft(el.dataset.crmDraftApprove);
+    if (el.dataset.crmDraftSkip) return skipCrmDraft(el.dataset.crmDraftSkip);
     if (el.dataset.reminderDone) return updateReminderStatus(el.dataset.reminderDone, "done");
     if (el.dataset.reminderCancel) return updateReminderStatus(el.dataset.reminderCancel, "cancelled");
     if (el.dataset.notifAction) return openNotificationAction(el.dataset.notifAction, el.dataset.notifId);
@@ -4063,6 +4164,7 @@ function initContentDelegation() {
       "world-create-form": createWorldFromForm,
       "crm-create-form": submitCrmContact,
       "crm-company-form": submitCrmCompany,
+      "crm-outreach-form": submitCrmOutreach,
       "goal-create-form": submitGoal,
       "reminder-create-form": submitReminder,
       "agent-config-form": saveAgentConfig,
@@ -4096,6 +4198,18 @@ function initContentDelegation() {
     }
     if (e.target.matches("[data-crm-whatsapp]")) {
       updateCrmWhatsapp(e.target.dataset.crmWhatsapp, e.target.checked);
+    }
+    if (e.target.matches("[data-crm-company-toggle]")) {
+      toggleCrmOutreachCompany(e.target);
+    }
+    if (e.target.id === "crm-outreach-batch") {
+      if (!state.ui) state.ui = {};
+      state.ui.crmOutreachBatch = parseInt(e.target.value, 10) || 5;
+      const sel = state.ui.crmOutreachSelected || [];
+      if (sel.length > state.ui.crmOutreachBatch) {
+        state.ui.crmOutreachSelected = sel.slice(0, state.ui.crmOutreachBatch);
+      }
+      render();
     }
   });
 
@@ -4222,6 +4336,115 @@ async function openCrmCompanyDetail(cid) {
     state._crmCompanyDetail = res;
     if (!state.ui) state.ui = {};
     state.ui.crmCompanyDetail = cid;
+    render();
+  } catch (e) { alert(e.message); }
+}
+
+function toggleCrmOutreachCompany(el) {
+  const id = parseInt(el.dataset.crmCompanyToggle, 10);
+  if (!id) return;
+  if (!state.ui) state.ui = {};
+  const batch = state.ui.crmOutreachBatch || 5;
+  const sel = new Set(state.ui.crmOutreachSelected || []);
+  if (el.checked) {
+    if (sel.size >= batch) { el.checked = false; return; }
+    sel.add(id);
+  } else {
+    sel.delete(id);
+  }
+  state.ui.crmOutreachSelected = [...sel];
+  render();
+}
+
+async function submitCrmOutreach(form) {
+  const fd = new FormData(form);
+  const world_id = (fd.get("world_id") || "").toString().trim();
+  const batch_size = parseInt(fd.get("batch_size") || "5", 10) || 5;
+  const brief = (fd.get("brief") || "").toString().trim();
+  const company_ids = state.ui?.crmOutreachSelected || [];
+  if (!world_id || world_id === "root") return alert("Select a sub-world for outreach.");
+  if (!company_ids.length) return alert("Select at least one company.");
+  try {
+    const created = await api("/crm/outreach/campaigns", {
+      method: "POST",
+      body: JSON.stringify({ world_id, batch_size, brief, company_ids }),
+    });
+    const start = await api(`/crm/outreach/campaigns/${created.campaign_id}/start`, { method: "POST" });
+    state._crmOutreachJob = start.job || {};
+    if (!state.ui) state.ui = {};
+    state.ui.crmCampaignId = created.campaign_id;
+    state.ui.crmOutreachSelected = [];
+    pollCrmOutreachJob(created.campaign_id);
+  } catch (e) { alert(e.message); }
+}
+
+async function pollCrmOutreachJob(campaignId) {
+  const tick = async () => {
+    try {
+      const detail = await api(`/crm/outreach/campaigns/${campaignId}`);
+      const camp = detail.campaign || {};
+      if (camp.status === "review" || camp.status === "done" || camp.status === "failed") {
+        state._crmOutreachJob = { phase: camp.status === "review" ? "Ready for review" : camp.status };
+        await openCrmCampaignReview(campaignId);
+        return;
+      }
+      state._crmOutreachJob = { phase: camp.status || "running…" };
+      render();
+      setTimeout(tick, 2500);
+    } catch {
+      setTimeout(tick, 4000);
+    }
+  };
+  setTimeout(tick, 2000);
+}
+
+async function openCrmCampaignReview(campaignId) {
+  if (!campaignId) return;
+  if (!state.ui) state.ui = {};
+  state.ui.crmTab = "outreach";
+  state.ui.crmCampaignId = campaignId;
+  localStorage.setItem("fos_crm_tab", "outreach");
+  try {
+    state._crmCampaignReview = await api(`/crm/outreach/campaigns/${campaignId}/review`);
+    render();
+  } catch (e) { alert(e.message); }
+}
+
+function closeCrmCampaignReview() {
+  if (state.ui) state.ui.crmCampaignId = null;
+  state._crmCampaignReview = null;
+  loadCrmData().then(() => render());
+}
+
+async function saveCrmDraftEdits(draftId) {
+  const subj = document.querySelector(`.crm-draft-subject[data-draft-id="${draftId}"]`);
+  const body = document.querySelector(`.crm-draft-body[data-draft-id="${draftId}"]`);
+  const payload = {};
+  if (subj) payload.subject = subj.value;
+  if (body) payload.body = body.value;
+  if (!Object.keys(payload).length) return;
+  await api(`/crm/outreach/drafts/${draftId}`, { method: "PATCH", body: JSON.stringify(payload) });
+}
+
+async function approveCrmDraft(draftId) {
+  if (!draftId) return;
+  try {
+    await saveCrmDraftEdits(draftId);
+    const res = await api(`/crm/outreach/drafts/${draftId}/approve-send`, { method: "POST" });
+    if (res.error) return alert(res.error);
+    const cid = state.ui?.crmCampaignId;
+    if (cid) state._crmCampaignReview = await api(`/crm/outreach/campaigns/${cid}/review`);
+    await loadCrmData();
+    render();
+  } catch (e) { alert(e.message); }
+}
+
+async function skipCrmDraft(draftId) {
+  if (!draftId) return;
+  try {
+    await api(`/crm/outreach/drafts/${draftId}/skip`, { method: "POST" });
+    const cid = state.ui?.crmCampaignId;
+    if (cid) state._crmCampaignReview = await api(`/crm/outreach/campaigns/${cid}/review`);
     render();
   } catch (e) { alert(e.message); }
 }

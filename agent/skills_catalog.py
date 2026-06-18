@@ -22,6 +22,34 @@ CURATED_SKILLS = [
         "agents": ["leads", "outreach"],
         "summary": "ICP definition, prospect research, and outreach list building.",
     },
+    {
+        "id": "direct-response-copy",
+        "name": "Direct response copy",
+        "path": ".cursor/skills/direct-response-copy/SKILL.md",
+        "agents": ["outreach", "leads"],
+        "summary": "Schwartz/Masterson/Dry frameworks for sharp B2B copy.",
+    },
+    {
+        "id": "b2b-cold-email",
+        "name": "B2B cold email",
+        "path": ".cursor/skills/b2b-cold-email/SKILL.md",
+        "agents": ["outreach"],
+        "summary": "Subject lines, 5-sentence body, single CTA, India SMB tone.",
+    },
+    {
+        "id": "whatsapp-outreach",
+        "name": "WhatsApp outreach",
+        "path": ".cursor/skills/whatsapp-outreach/SKILL.md",
+        "agents": ["outreach"],
+        "summary": "Short openers under 300 chars, approval-first.",
+    },
+    {
+        "id": "sales-discovery",
+        "name": "Sales discovery",
+        "path": ".cursor/skills/sales-discovery/SKILL.md",
+        "agents": ["outreach", "leads"],
+        "summary": "SPIN-lite discovery for warm follow-ups.",
+    },
 ]
 
 
