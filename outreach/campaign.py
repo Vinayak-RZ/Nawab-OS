@@ -30,6 +30,12 @@ from memory.sql_store import (
     update_draft,
 )
 from memory.world_templates import template_for_kind
+from outreach.dossier import (
+    build_dossier_markdown,
+    ingest_dossier_to_vault,
+    read_dossier,
+    write_dossier,
+)
 from outreach.email_sender import send_email
 from tools.web_search import search as web_search
 
@@ -44,6 +50,20 @@ WA_SEND_COOLDOWN_S = int(os.getenv("OUTREACH_WA_COOLDOWN_S", "60"))
 _last_send_at: dict[str, float] = {}
 _send_lock = threading.Lock()
 _campaign_jobs: dict[str, dict] = {}
+
+
+def _sync_await(coro):
+    """Run async coroutine from sync code (safe inside or outside an event loop)."""
+    try:
+        asyncio.get_running_loop()
+        in_loop = True
+    except RuntimeError:
+        in_loop = False
+    if not in_loop:
+        return asyncio.run(coro)
+    import concurrent.futures
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
+        return ex.submit(asyncio.run, coro).result()
 
 
 def create_campaign(world_id: str, company_ids: list, batch_size: int, brief: str = "",
@@ -158,8 +178,83 @@ def _research_company(world_id: str, company: dict, brief: str, on_phase: Callab
         "web_hits": web_hits[:6],
         "crm_research_summary": company.get("research_summary") or "",
         "brief": brief,
+        "narrative": "",
+        "summary": "",
     }
     return research
+
+
+async def _synthesize_company_research(research: dict) -> dict:
+    """Turn raw vault/web signals into a company-specific research narrative."""
+    payload = json.dumps({
+        "company": research.get("company_name"),
+        "sector": research.get("sector"),
+        "brief": research.get("brief"),
+        "vault_snippets": (research.get("vault_snippets") or [])[:4],
+        "web_hits": (research.get("web_hits") or [])[:4],
+        "crm_notes": (research.get("crm_research_summary") or "")[:800],
+    }, indent=2)[:8000]
+
+    messages = [
+        {"role": "system", "content": (
+            f"You are a B2B research analyst for {config.company_name}. "
+            "Write specific, factual company research for cold outreach. "
+            "Do not invent facts not supported by the sources. "
+            "If data is thin, say what is known and what to verify."
+        )},
+        {"role": "user", "content": f"""Sources for one company:
+{payload}
+
+Respond JSON only:
+{{
+  "narrative": "2-4 paragraphs: who they are, why they might care, hooks for outreach",
+  "summary": "3 bullet points of personalization hooks",
+  "risk_flags": ["optional gaps or things to verify"]
+}}"""},
+    ]
+    raw = await complete(messages, task_type="analysis")
+    clean = raw.strip().replace("```json", "").replace("```", "").strip()
+    try:
+        parsed = json.loads(clean)
+        research["narrative"] = (parsed.get("narrative") or "")[:4000]
+        research["summary"] = (parsed.get("summary") or "")[:1500]
+        if isinstance(parsed.get("risk_flags"), list):
+            research["risk_flags"] = parsed["risk_flags"][:5]
+    except Exception:
+        bits = []
+        for s in (research.get("vault_snippets") or [])[:2]:
+            bits.append(s.get("excerpt", "")[:300])
+        for w in (research.get("web_hits") or [])[:2]:
+            bits.append(w.get("snippet", "")[:300])
+        research["narrative"] = "\n\n".join(bits)[:4000] or f"Limited public data for {research.get('company_name')}."
+        research["summary"] = research["narrative"][:500]
+    return research
+
+
+def _write_campaign_dossier(campaign_id: int) -> str:
+    camp = get_campaign(campaign_id)
+    if not camp:
+        return ""
+    rows = get_campaign_companies(campaign_id)
+    enriched = []
+    for row in rows:
+        r = dict(row)
+        try:
+            rj = json.loads(row.get("research_json") or "{}")
+            r["_narrative"] = rj.get("narrative") or ""
+        except Exception:
+            r["_narrative"] = ""
+        enriched.append(r)
+    md = build_dossier_markdown(camp, enriched, camp.get("brief") or "")
+    rel = write_dossier(camp["world_id"], campaign_id, md)
+    doc_id = ingest_dossier_to_vault(
+        camp["world_id"],
+        campaign_id,
+        md,
+        f"Outreach — {camp.get('name') or campaign_id}",
+    )
+    update_campaign(campaign_id, dossier_path=rel, **({"dossier_doc_id": doc_id} if doc_id else {}))
+    return md
 
 
 async def run_strategy_phase(campaign_id: int) -> dict:
@@ -217,6 +312,55 @@ Respond JSON only:
     return strategy
 
 
+async def run_template_phase(campaign_id: int) -> dict:
+    """One unified batch email + WhatsApp template from cohort research."""
+    camp = get_campaign(campaign_id)
+    if not camp:
+        return {"error": "campaign not found"}
+    try:
+        strategy = json.loads(camp.get("strategy_json") or "{}")
+    except Exception:
+        strategy = {}
+
+    dossier = read_dossier(camp["world_id"], campaign_id) or ""
+    if not dossier:
+        _write_campaign_dossier(campaign_id)
+        dossier = read_dossier(camp["world_id"], campaign_id) or ""
+
+    messages = [
+        {"role": "system", "content": (
+            f"You write batch outreach templates for {config.my_name} at {config.company_name}. "
+            f"{config.my_one_liner}\n"
+            "Create ONE master email template for the cohort — specific enough to feel researched, "
+            "generic enough to personalize per company later."
+        )},
+        {"role": "user", "content": f"""Strategy:
+{json.dumps(strategy, indent=2)[:3000]}
+
+Brief: {camp.get('brief') or ''}
+
+Campaign dossier (all companies researched):
+{dossier[:10000]}
+
+JSON only:
+{{
+  "email_subject": "",
+  "email_body": "",
+  "whatsapp_body": "",
+  "personalization_slots": ["placeholders to swap per company, e.g. {{company_hook}}"]
+}}"""},
+    ]
+    raw = await complete(messages, task_type="outreach")
+    clean = raw.strip().replace("```json", "").replace("```", "").strip()
+    try:
+        template = json.loads(clean)
+    except Exception:
+        template = {"email_subject": "Quick question", "email_body": clean[:1200], "whatsapp_body": clean[:280]}
+
+    update_campaign(campaign_id, template_json=json.dumps(template))
+    return template
+
+
 async def run_draft_phase(campaign_id: int, on_phase: Callable | None = None) -> dict:
     from specialists import outreach_agent
 
@@ -227,6 +371,10 @@ async def run_draft_phase(campaign_id: int, on_phase: Callable | None = None) ->
         strategy = json.loads(camp.get("strategy_json") or "{}")
     except Exception:
         strategy = {}
+    try:
+        template = json.loads(camp.get("template_json") or "{}")
+    except Exception:
+        template = {}
 
     drafted = 0
     for row in get_campaign_companies(campaign_id):
@@ -236,6 +384,12 @@ async def run_draft_phase(campaign_id: int, on_phase: Callable | None = None) ->
         name = row.get("company_name") or "Company"
         if on_phase:
             on_phase(f"Drafting for {name}…")
+
+        company_research = {}
+        try:
+            company_research = json.loads(row.get("research_json") or "{}")
+        except Exception:
+            pass
 
         contacts = get_company_contacts(cid)
         if not contacts:
@@ -247,6 +401,8 @@ async def run_draft_phase(campaign_id: int, on_phase: Callable | None = None) ->
                     contact_id=contact["id"],
                     strategy=strategy,
                     brief=camp.get("brief") or "",
+                    company_research=company_research,
+                    template=template,
                 )
                 create_outreach_draft(
                     campaign_id,
@@ -263,6 +419,8 @@ async def run_draft_phase(campaign_id: int, on_phase: Callable | None = None) ->
                     contact_id=contact["id"],
                     strategy=strategy,
                     brief=camp.get("brief") or "",
+                    company_research=company_research,
+                    template=template,
                 )
                 create_outreach_draft(
                     campaign_id,
@@ -293,16 +451,15 @@ def run_research_phase(campaign_id: int, on_phase: Callable | None = None) -> di
         if on_phase:
             on_phase(f"Researching {row.get('company_name')} ({i}/{total})…")
         research = _research_company(world_id, row, brief, on_phase=on_phase)
+        research = _sync_await(_synthesize_company_research(research))
         update_campaign_company(row["id"], status="researched", research_json=json.dumps(research))
-        if research.get("vault_snippets") or research.get("web_hits"):
-            summary_bits = []
-            for s in (research.get("vault_snippets") or [])[:2]:
-                summary_bits.append(s.get("excerpt", "")[:200])
-            for w in (research.get("web_hits") or [])[:1]:
-                summary_bits.append(w.get("snippet", "")[:200])
-            if summary_bits:
-                update_company(row["company_id"], research_summary=" | ".join(summary_bits)[:2000])
+        if research.get("narrative") or research.get("vault_snippets") or research.get("web_hits"):
+            summary_bits = [research.get("summary") or research.get("narrative", "")[:500]]
+            update_company(row["company_id"], research_summary=summary_bits[0][:2000])
 
+    if on_phase:
+        on_phase("Writing campaign dossier…")
+    _write_campaign_dossier(campaign_id)
     return {"status": "researched", "companies": total}
 
 
@@ -311,6 +468,9 @@ async def run_campaign_pipeline(campaign_id: int, on_phase: Callable | None = No
     if on_phase:
         on_phase("Building cohort strategy…")
     await run_strategy_phase(campaign_id)
+    if on_phase:
+        on_phase("Creating batch message template…")
+    await run_template_phase(campaign_id)
     return await run_draft_phase(campaign_id, on_phase=on_phase)
 
 
@@ -332,6 +492,12 @@ def get_review_queue(campaign_id: int) -> dict:
         strategy = json.loads(camp.get("strategy_json") or "{}")
     except Exception:
         strategy = {}
+    try:
+        template = json.loads(camp.get("template_json") or "{}")
+    except Exception:
+        template = {}
+
+    dossier_md = read_dossier(camp["world_id"], campaign_id) or ""
 
     current_co = next((c for c in companies if c["company_id"] == current_company_id), None)
     research = {}
@@ -356,6 +522,8 @@ def get_review_queue(campaign_id: int) -> dict:
     return {
         "campaign": camp,
         "strategy": strategy,
+        "template": template,
+        "dossier_md": dossier_md,
         "companies": companies,
         "drafts": drafts,
         "current_company_id": current_company_id,
@@ -550,3 +718,99 @@ def get_running_job_for_campaign(campaign_id: int) -> dict | None:
         if job.get("campaign_id") == campaign_id and job.get("status") == "running":
             return job
     return None
+
+
+def get_campaign_dossier(campaign_id: int) -> dict:
+    camp = get_campaign(campaign_id)
+    if not camp:
+        return {"error": "campaign not found"}
+    md = read_dossier(camp["world_id"], campaign_id) or ""
+    return {"campaign_id": campaign_id, "dossier_md": md, "dossier_path": camp.get("dossier_path") or ""}
+
+
+def save_campaign_dossier(campaign_id: int, content: str) -> dict:
+    camp = get_campaign(campaign_id)
+    if not camp:
+        return {"error": "campaign not found"}
+    rel = write_dossier(camp["world_id"], campaign_id, content or "")
+    update_campaign(campaign_id, dossier_path=rel)
+    return {"ok": True, "dossier_path": rel}
+
+
+async def refresh_company_research(campaign_id: int, company_id: int, *, web_search_enabled: bool = False) -> dict:
+    camp = get_campaign(campaign_id)
+    if not camp:
+        return {"error": "campaign not found"}
+    rows = [c for c in get_campaign_companies(campaign_id) if c["company_id"] == int(company_id)]
+    if not rows:
+        return {"error": "company not in campaign"}
+    row = rows[0]
+    research = _research_company(camp["world_id"], row, camp.get("brief") or "")
+
+    if web_search_enabled:
+        name = row.get("company_name") or "Company"
+        sector = row.get("sector") or ""
+        extra_hits = []
+        for q in [f"{name} {sector} India".strip(), f"{name} latest news", f"{name} manufacturing"]:
+            try:
+                for hit in (web_search(q, num_results=3) or [])[:3]:
+                    extra_hits.append({
+                        "query": q,
+                        "title": hit.get("title") or "",
+                        "snippet": (hit.get("snippet") or hit.get("body") or "")[:400],
+                        "url": hit.get("url") or hit.get("link") or "",
+                    })
+            except Exception as e:
+                logger.warning("refresh web_search failed: %s", e)
+        existing = {h.get("url") for h in research.get("web_hits") or []}
+        for h in extra_hits:
+            if h.get("url") and h["url"] not in existing:
+                research.setdefault("web_hits", []).append(h)
+
+    research = await _synthesize_company_research(research)
+    update_campaign_company(row["id"], research_json=json.dumps(research))
+    _write_campaign_dossier(campaign_id)
+    return {"ok": True, "research": research}
+
+
+async def ai_edit_draft(draft_id: int, instruction: str, *, web_search_enabled: bool = False) -> dict:
+    from specialists import outreach_agent
+
+    draft = get_draft(draft_id)
+    if not draft:
+        return {"error": "draft not found"}
+    if draft.get("status") not in ("draft", "approved"):
+        return {"error": f"Draft is {draft.get('status')}"}
+
+    camp = get_campaign(draft["campaign_id"])
+    company_research = {}
+    rows = [c for c in get_campaign_companies(draft["campaign_id"]) if c["company_id"] == draft.get("company_id")]
+    if rows:
+        if web_search_enabled:
+            await refresh_company_research(draft["campaign_id"], draft["company_id"], web_search_enabled=True)
+            rows = [c for c in get_campaign_companies(draft["campaign_id"]) if c["company_id"] == draft.get("company_id")]
+        try:
+            company_research = json.loads(rows[0].get("research_json") or "{}")
+        except Exception:
+            pass
+
+    dossier = read_dossier(camp["world_id"], draft["campaign_id"]) if camp else ""
+    edited = await outreach_agent.ai_edit_draft(
+        draft=draft,
+        instruction=instruction,
+        company_research=company_research,
+        dossier=dossier,
+        brief=camp.get("brief") if camp else "",
+    )
+    if edited.get("error"):
+        return edited
+    payload = {}
+    if draft.get("channel") == "email" and edited.get("subject") is not None:
+        payload["subject"] = edited["subject"]
+    if edited.get("body") is not None:
+        payload["body"] = edited["body"]
+    if edited.get("personalization_notes"):
+        payload["personalization_notes"] = edited["personalization_notes"]
+    if payload:
+        update_draft(draft_id, **payload)
+    return {"ok": True, "draft": get_draft(draft_id)}

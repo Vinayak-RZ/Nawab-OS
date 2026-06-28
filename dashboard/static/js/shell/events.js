@@ -22,6 +22,7 @@ export function registerShellEvents(ctx) {
         + "[data-crm-import-companies],[data-crm-reload],"
         + "[data-crm-outreach-start],[data-crm-campaign],[data-crm-draft-approve],[data-crm-draft-skip],[data-crm-company-toggle],"
         + "[data-crm-skip-company],[data-crm-outreach-refresh],[data-crm-outreach-back],[data-outreach-open-crm-companies],[data-outreach-save-companies],"
+        + "[data-outreach-save-dossier],[data-outreach-ai-edit],[data-outreach-refresh-research],[data-outreach-refresh-research-web],"
         + "[data-msg-read-more],"
         + "#chat-send,#chat-clear,#memory-search,#toggle-pause,#agents-vault-search,"
         + "#delegate-selected-btn,#btn-logout,#btn-infra-refresh"
@@ -143,6 +144,19 @@ export function registerShellEvents(ctx) {
         return ctx.loadOutreachData().then(() => ctx.render());
       }
       if (el.hasAttribute("data-outreach-save-companies")) return ctx.saveOutreachCompanySelection();
+      if (el.dataset.outreachSaveDossier) {
+        return ctx.runWithActionBusy(() => ctx.saveOutreachDossier(el.dataset.outreachSaveDossier), el);
+      }
+      if (el.dataset.outreachAiEdit) {
+        const web = document.querySelector(`[data-outreach-ai-web="${el.dataset.outreachAiEdit}"]`)?.checked;
+        return ctx.runWithActionBusy(() => ctx.aiEditOutreachDraft(el.dataset.outreachAiEdit, web), el);
+      }
+      if (el.dataset.outreachRefreshResearch) {
+        return ctx.runWithActionBusy(() => ctx.refreshOutreachResearch(el.dataset.outreachRefreshResearch, false), el);
+      }
+      if (el.dataset.outreachRefreshResearchWeb) {
+        return ctx.runWithActionBusy(() => ctx.refreshOutreachResearch(el.dataset.outreachRefreshResearchWeb, true), el);
+      }
       if (el.hasAttribute("data-outreach-open-crm-companies")) {
         if (!ctx.state.ui) ctx.state.ui = {};
         ctx.state.ui.crmTab = "companies";

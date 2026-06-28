@@ -79,16 +79,26 @@ def test_campaign_pipeline_mocks_llm(isolated_db):
             with patch.object(camp, "web_search", return_value=[{"title": "News", "snippet": "Beta expanded"}]):
                 with patch.object(camp, "complete", new_callable=AsyncMock) as mock_llm:
                     mock_llm.return_value = json.dumps({
-                        "cohort_label": "Mfg SMBs",
-                        "framing_rules": ["lead with cost"],
-                        "email_tone": "direct",
-                        "whatsapp_tone": "short",
+                        "narrative": "Beta Co is a manufacturer.",
+                        "summary": "Expansion news",
                     })
                     with patch("specialists.outreach_agent.draft_email_for_campaign", new_callable=AsyncMock) as de:
                         de.return_value = {"subject": "Quick question", "body": "Hi Bob", "personalization_notes": ""}
                         with patch("specialists.outreach_agent.draft_whatsapp_for_campaign", new_callable=AsyncMock):
                             camp.run_research_phase(camp_id)
+                            mock_llm.return_value = json.dumps({
+                                "cohort_label": "Mfg SMBs",
+                                "framing_rules": ["lead with cost"],
+                                "email_tone": "direct",
+                                "whatsapp_tone": "short",
+                            })
                             await camp.run_strategy_phase(camp_id)
+                            mock_llm.return_value = json.dumps({
+                                "email_subject": "Energy savings",
+                                "email_body": "Hi — quick note on energy costs.",
+                                "whatsapp_body": "Hi — energy question?",
+                            })
+                            await camp.run_template_phase(camp_id)
                             await camp.run_draft_phase(camp_id)
 
         asyncio.run(_run())

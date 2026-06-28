@@ -564,6 +564,55 @@ def api_outreach_draft_skip(did):
     return jsonify(result)
 
 
+@bp.route("/crm/outreach/campaigns/<int:cid>/dossier")
+def api_outreach_campaign_dossier_get(cid):
+    from outreach.campaign import get_campaign_dossier
+    result = _safe(lambda: get_campaign_dossier(cid), {})
+    if result.get("error"):
+        return jsonify(result), 404
+    return jsonify(result)
+
+
+@bp.route("/crm/outreach/campaigns/<int:cid>/dossier", methods=["PATCH"])
+def api_outreach_campaign_dossier_patch(cid):
+    from outreach.campaign import save_campaign_dossier
+    data = request.get_json(silent=True) or {}
+    content = (data.get("dossier_md") or data.get("content") or "").strip()
+    if not content:
+        return jsonify({"error": "dossier_md required"}), 400
+    result = save_campaign_dossier(cid, content)
+    if result.get("error"):
+        return jsonify(result), 400
+    return jsonify(result)
+
+
+@bp.route("/crm/outreach/drafts/<int:did>/ai-edit", methods=["POST"])
+def api_outreach_draft_ai_edit(did):
+    import asyncio
+    from outreach.campaign import ai_edit_draft
+    data = request.get_json(silent=True) or {}
+    instruction = (data.get("instruction") or "").strip()
+    if not instruction:
+        return jsonify({"error": "instruction required"}), 400
+    web = bool(data.get("web_search"))
+    result = asyncio.run(ai_edit_draft(did, instruction, web_search_enabled=web))
+    if result.get("error"):
+        return jsonify(result), 400
+    return jsonify(result)
+
+
+@bp.route("/crm/outreach/campaigns/<int:cid>/companies/<int:co_id>/research", methods=["POST"])
+def api_outreach_refresh_research(cid, co_id):
+    import asyncio
+    from outreach.campaign import refresh_company_research
+    data = request.get_json(silent=True) or {}
+    web = bool(data.get("web_search"))
+    result = asyncio.run(refresh_company_research(cid, co_id, web_search_enabled=web))
+    if result.get("error"):
+        return jsonify(result), 400
+    return jsonify(result)
+
+
 @bp.route("/crm/contacts/<int:cid>", methods=["PATCH"])
 def api_contacts_update(cid):
     from memory.sql_store import update_contact, get_contact

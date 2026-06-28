@@ -193,6 +193,9 @@ def _migrate_outreach(conn=None):
     """)
     for stmt in (
         "ALTER TABLE outreach_log ADD COLUMN campaign_id INTEGER",
+        "ALTER TABLE outreach_campaigns ADD COLUMN dossier_path TEXT DEFAULT ''",
+        "ALTER TABLE outreach_campaigns ADD COLUMN template_json TEXT DEFAULT ''",
+        "ALTER TABLE outreach_campaigns ADD COLUMN dossier_doc_id INTEGER",
     ):
         try:
             conn.execute(stmt)
@@ -565,7 +568,7 @@ def list_campaigns(world_id: str = None, limit: int = 30) -> list:
 
 
 def update_campaign(campaign_id: int, **kwargs):
-    allowed = {"name", "brief", "status", "strategy_json", "batch_size"}
+    allowed = {"name", "brief", "status", "strategy_json", "batch_size", "dossier_path", "template_json", "dossier_doc_id"}
     payload = {k: v for k, v in kwargs.items() if k in allowed}
     if not payload:
         return

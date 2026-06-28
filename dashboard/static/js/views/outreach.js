@@ -233,10 +233,10 @@ export function registerViewsOutreach(ctx) {
 
   function renderOutreachSteps(step) {
     const steps = [
-      ["setup", "1. Setup"],
-      ["running", "2. Research & draft"],
-      ["review", "3. Review & send"],
-      ["complete", "4. Done"],
+      ["setup", "Setup"],
+      ["running", "Research"],
+      ["review", "Review & send"],
+      ["complete", "Complete"],
     ];
     const order = { setup: 0, running: 1, review: 2, complete: 3 };
     const cur = order[step] ?? 0;
@@ -261,7 +261,7 @@ export function registerViewsOutreach(ctx) {
       <div class="crm-outreach-progress-strip">
         <div class="crm-outreach-progress-strip__bar"><div class="crm-outreach-progress-strip__fill" style="width:40%"></div></div>
         <p class="body-md"><strong>${ctx.esc(phase)}</strong></p>
-        <p class="muted body-sm">Researching companies via knowledge tree + web, then drafting messages. This runs in the background — you can leave this page.</p>
+        <p class="muted body-sm">Per-company vault + web research → campaign dossier → batch template → personalized drafts. You can leave this page.</p>
         <p class="muted body-sm">Batch: ${total} companies · World: <span data-active-world-label>${ctx.esc(ctx.activeWorldLabel())}</span></p>
       </div>
       <button type="button" class="button-outline-on-dark button-sm" data-crm-outreach-refresh>Refresh status</button>
@@ -290,6 +290,8 @@ export function registerViewsOutreach(ctx) {
   function renderOutreachReviewPanel(review) {
     const camp = review.campaign;
     const strategy = review.strategy || {};
+    const template = review.template || {};
+    const dossierMd = review.dossier_md || "";
     const co = review.current_company;
     const research = review.current_research || {};
     const drafts = review.current_drafts || [];
@@ -299,6 +301,8 @@ export function registerViewsOutreach(ctx) {
     const coLabel = co?.company_name || co?.name || "Company";
     const coIdx = prog.company_index || 1;
     const coTotal = prog.companies_total || 1;
+    const cid = outreachCampaignId();
+    const coId = co?.company_id ?? review.current_company_id ?? "";
 
     const draftCard = (d) => {
       const reason = ctx.draftApproveDisabledReason(d);
@@ -315,6 +319,17 @@ export function registerViewsOutreach(ctx) {
           <textarea class="text-input-on-dark crm-draft-body crm-draft-body--fit" data-draft-id="${d.id}" data-channel="${ctx.esc(d.channel)}" rows="1">${ctx.esc(d.body || "")}</textarea>
           ${d.channel === "whatsapp" ? `<span class="caption muted crm-wa-count" data-draft-id="${d.id}">${waLen}/300</span>` : ""}
         </label>
+        <div class="outreach-ai-edit" data-draft-ai-panel="${d.id}">
+          <label class="human-field outreach-draft-field"><span class="caption-uppercase">AI edit instruction</span>
+            <input type="text" class="text-input-on-dark outreach-ai-instruction" data-draft-id="${d.id}" placeholder="e.g. shorten, more direct, add energy savings hook…"></label>
+          <div class="human-form__actions outreach-ai-actions">
+            <button type="button" class="button-outline-on-dark button-sm" data-outreach-ai-edit="${d.id}">Apply AI edit</button>
+            <label class="human-field--checkbox outreach-web-toggle">
+              <input type="checkbox" data-outreach-ai-web="${d.id}">
+              <span class="body-sm">Web search first</span>
+            </label>
+          </div>
+        </div>
         <div class="human-form__actions">
           <button type="button" class="button-primary button-sm" data-crm-draft-approve="${d.id}" ${reason ? "disabled title=\"" + ctx.esc(reason) + "\"" : ""}>Approve &amp; Send</button>
           <button type="button" class="button-outline-on-dark button-sm" data-crm-draft-skip="${d.id}">Skip message</button>
@@ -324,12 +339,23 @@ export function registerViewsOutreach(ctx) {
       </div>`;
     };
 
+    const narrative = research.narrative || research.summary || "";
+    const templateBlock = (template.email_body || template.email_subject) ? `
+      <details class="outreach-template-details" open>
+        <summary class="caption-uppercase">Batch template (master copy)</summary>
+        <div class="outreach-template-body">
+          ${template.email_subject ? `<p class="body-sm"><strong>Subject:</strong> ${ctx.esc(template.email_subject)}</p>` : ""}
+          ${template.email_body ? `<pre class="body-sm outreach-template-pre">${ctx.esc(template.email_body)}</pre>` : ""}
+          ${template.whatsapp_body ? `<p class="caption-uppercase" style="margin-top:var(--space-sm)">WhatsApp template</p><pre class="body-sm outreach-template-pre">${ctx.esc(template.whatsapp_body)}</pre>` : ""}
+        </div>
+      </details>` : "";
+
     return `<section class="driver-card span-12 outreach-review">
       <div class="human-panel__head">
         <div>
           <p class="section-eyebrow">Review &amp; send</p>
           <h3 class="title-sm">${ctx.esc(camp.name || "Campaign")}</h3>
-          <p class="muted body-sm">Company ${coIdx} of ${coTotal} · ${review.pending_count || 0} message(s) left — approve one at a time</p>
+          <p class="muted body-sm">Company ${coIdx} of ${coTotal} · ${review.pending_count || 0} message(s) left</p>
         </div>
         <button type="button" class="button-outline-on-dark button-sm" data-crm-outreach-back>Exit review</button>
       </div>
@@ -342,27 +368,45 @@ export function registerViewsOutreach(ctx) {
           <span class="badge-pill">Pending ${review.pending_count || 0}</span>
         </div>
       </div>
+
+      <details class="outreach-dossier-panel"${dossierMd ? " open" : ""}>
+        <summary class="caption-uppercase">Campaign dossier — all companies</summary>
+        <p class="body-sm muted">Research file for this batch. Edit and save — used as context for AI edits.</p>
+        <textarea id="outreach-dossier-editor" class="text-input-on-dark outreach-dossier-editor" rows="12">${ctx.esc(dossierMd)}</textarea>
+        <div class="human-form__actions">
+          <button type="button" class="button-outline-on-dark button-sm" data-outreach-save-dossier="${cid || ""}">Save dossier</button>
+        </div>
+      </details>
+
+      ${templateBlock}
+
       <details class="crm-strategy-details">
         <summary class="caption-uppercase">Cohort strategy</summary>
-        <pre class="body-sm muted" style="white-space:pre-wrap">${ctx.esc(JSON.stringify(strategy, null, 2))}</pre>
+        <pre class="body-sm muted outreach-strategy-pre">${ctx.esc(JSON.stringify(strategy, null, 2))}</pre>
       </details>
+
       ${co ? `<div class="crm-company-review driver-card outreach-company-review">
         <div class="human-panel__head">
           <h4 class="title-sm">${ctx.esc(coLabel)}</h4>
-          <button type="button" class="button-outline-on-dark button-sm" data-crm-skip-company="${co.company_id ?? review.current_company_id ?? ""}">Skip company</button>
+          <div class="human-form__actions">
+            <button type="button" class="button-outline-on-dark button-sm" data-outreach-refresh-research="${coId}" data-campaign-id="${cid || ""}">Refresh research</button>
+            <button type="button" class="button-outline-on-dark button-sm" data-outreach-refresh-research-web="${coId}" data-campaign-id="${cid || ""}">Search web &amp; refresh</button>
+            <button type="button" class="button-outline-on-dark button-sm" data-crm-skip-company="${coId}">Skip company</button>
+          </div>
         </div>
         <p class="body-sm muted">${ctx.esc(research.sector || co.sector || "")}</p>
-        ${research.crm_research_summary ? `<p class="body-sm">${ctx.esc(String(research.crm_research_summary).slice(0, 400))}</p>` : ""}
-        ${(research.web_hits || []).length ? `<p class="caption-uppercase">Web signals</p><ul class="list-plain">${research.web_hits.slice(0, 3).map(w =>
+        ${narrative ? `<div class="outreach-research-narrative"><p class="caption-uppercase">Company research</p><p class="body-md outreach-narrative-text">${ctx.esc(narrative)}</p></div>` : ""}
+        ${(research.web_hits || []).length ? `<details class="outreach-research-details"><summary class="caption-uppercase">Web signals (${research.web_hits.length})</summary><ul class="list-plain">${research.web_hits.slice(0, 5).map(w =>
           `<li class="body-sm">${ctx.esc(w.snippet || w.title || "")}${w.url ? ` <a href="${ctx.esc(w.url)}" target="_blank" rel="noopener">link</a>` : ""}</li>`
-        ).join("")}</ul>` : ""}
-        ${(research.vault_files_used || []).length ? `<p class="caption-uppercase">Vault files used</p><ul class="list-plain">${research.vault_files_used.map(f =>
+        ).join("")}</ul></details>` : ""}
+        ${(research.vault_files_used || []).length ? `<details class="outreach-research-details"><summary class="caption-uppercase">Vault files (${research.vault_files_used.length})</summary><ul class="list-plain">${research.vault_files_used.map(f =>
           `<li class="body-sm">${ctx.esc(f.title || ("doc #" + f.doc_id))}</li>`
-        ).join("")}</ul>` : ""}
+        ).join("")}</ul></details>` : ""}
       </div>` : ""}
-      ${emailDrafts.length ? `<p class="caption-uppercase">Email drafts</p>` : ""}
+
+      ${emailDrafts.length ? `<p class="caption-uppercase outreach-section-label">Email drafts</p>` : ""}
       ${emailDrafts.map(draftCard).join("")}
-      ${waDrafts.length ? `<p class="caption-uppercase" style="margin-top:var(--space-md)">WhatsApp drafts</p>` : ""}
+      ${waDrafts.length ? `<p class="caption-uppercase outreach-section-label">WhatsApp drafts</p>` : ""}
       ${waDrafts.map(draftCard).join("")}
       ${!drafts.length && co ? `<p class="muted">No drafts for this company — contacts may lack email or WhatsApp allowlist.</p>` : ""}
     </section>`;
@@ -677,6 +721,49 @@ export function registerViewsOutreach(ctx) {
     } catch (e) { alert(e.message); }
   }
 
+  async function saveOutreachDossier(campaignId) {
+    const cid = campaignId || outreachCampaignId();
+    if (!cid) return alert("No campaign selected");
+    const el = document.getElementById("outreach-dossier-editor");
+    const dossier_md = el?.value ?? "";
+    try {
+      await ctx.api(`/crm/outreach/campaigns/${cid}/dossier`, {
+        method: "PATCH",
+        body: JSON.stringify({ dossier_md }),
+      });
+      if (ctx.state._crmCampaignReview) ctx.state._crmCampaignReview.dossier_md = dossier_md;
+    } catch (e) { alert(e.message); }
+  }
+
+  async function aiEditOutreachDraft(draftId, webSearch = false) {
+    if (!draftId) return;
+    const instrEl = document.querySelector(`.outreach-ai-instruction[data-draft-id="${draftId}"]`);
+    const instruction = (instrEl?.value || "").trim();
+    if (!instruction) return alert("Enter an instruction for the AI edit (e.g. shorten, more direct).");
+    try {
+      await ctx.saveCrmDraftEdits(draftId);
+      const res = await ctx.api(`/crm/outreach/drafts/${draftId}/ai-edit`, {
+        method: "POST",
+        body: JSON.stringify({ instruction, web_search: webSearch }),
+      });
+      if (res.error) return alert(res.error);
+      await ctx.refreshOutreachReview();
+    } catch (e) { alert(e.message); }
+  }
+
+  async function refreshOutreachResearch(companyId, webSearch = false) {
+    const cid = outreachCampaignId();
+    const coId = parseInt(companyId, 10);
+    if (!cid || !coId) return alert("Missing campaign or company");
+    try {
+      await ctx.api(`/crm/outreach/campaigns/${cid}/companies/${coId}/research`, {
+        method: "POST",
+        body: JSON.stringify({ web_search: webSearch }),
+      });
+      await ctx.refreshOutreachReview();
+    } catch (e) { alert(e.message); }
+  }
+
   async function skipCrmDraft(draftId) {
     if (!draftId) return;
     try {
@@ -712,6 +799,9 @@ export function registerViewsOutreach(ctx) {
   ctx.restoreOutreachSelectionForWorld = restoreOutreachSelectionForWorld;
   ctx.resetOutreachCompanySelection = resetOutreachCompanySelection;
   ctx.toggleCrmOutreachCompany = toggleCrmOutreachCompany;
+  ctx.saveOutreachDossier = saveOutreachDossier;
+  ctx.aiEditOutreachDraft = aiEditOutreachDraft;
+  ctx.refreshOutreachResearch = refreshOutreachResearch;
   ctx.skipCrmCompany = skipCrmCompany;
   ctx.saveCrmDraftEdits = saveCrmDraftEdits;
   ctx.approveCrmDraft = approveCrmDraft;

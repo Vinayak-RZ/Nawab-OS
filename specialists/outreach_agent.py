@@ -112,19 +112,40 @@ def _skill_block() -> str:
         return ""
 
 
-async def draft_email_for_campaign(contact_id: int, strategy: dict = None, brief: str = "") -> dict:
+async def draft_email_for_campaign(
+    contact_id: int,
+    strategy: dict = None,
+    brief: str = "",
+    company_research: dict = None,
+    template: dict = None,
+) -> dict:
     contact = get_contact(contact_id)
     if not contact:
         return {"error": "contact not found", "subject": "", "body": ""}
     strategy = strategy or {}
+    template = template or {}
+    research = company_research or {}
     skills = _skill_block()
+    research_block = json.dumps({
+        "narrative": (research.get("narrative") or "")[:2000],
+        "summary": (research.get("summary") or "")[:800],
+        "web_hits": (research.get("web_hits") or [])[:3],
+    }, indent=2)[:3500]
     messages = [
         {"role": "system", "content": f"""You write B2B cold email for {config.my_name} at {config.company_name}.
 {config.my_one_liner}
-Rules: max 5 sentences, one CTA, no fabricated proof, concrete language.
+Rules: max 5 sentences, one CTA, no fabricated proof, use company-specific hooks from research.
 {skills}"""},
-        {"role": "user", "content": f"""Strategy: {json.dumps(strategy)[:2000]}
+        {"role": "user", "content": f"""Batch template (personalize for this company + contact):
+Subject template: {template.get('email_subject') or ''}
+Body template: {(template.get('email_body') or '')[:1500]}
+
+Strategy: {json.dumps(strategy)[:1500]}
 Brief: {brief}
+
+COMPANY RESEARCH (must influence the message):
+{research_block}
+
 Contact: {contact.get('name')} — {contact.get('role')} @ {contact.get('company')}
 Notes: {contact.get('notes') or ''}
 
@@ -140,18 +161,29 @@ JSON: subject, body, personalization_notes"""},
     return draft
 
 
-async def draft_whatsapp_for_campaign(contact_id: int, strategy: dict = None, brief: str = "") -> dict:
+async def draft_whatsapp_for_campaign(
+    contact_id: int,
+    strategy: dict = None,
+    brief: str = "",
+    company_research: dict = None,
+    template: dict = None,
+) -> dict:
     contact = get_contact(contact_id)
     if not contact:
         return {"error": "contact not found", "body": ""}
     strategy = strategy or {}
+    template = template or {}
+    research = company_research or {}
     skills = _skill_block()
+    research_block = (research.get("summary") or research.get("narrative") or "")[:800]
     messages = [
         {"role": "system", "content": f"""WhatsApp opener for {config.my_name} at {config.company_name}.
-Max 280 chars. Human, specific, no spam patterns.
+Max 280 chars. Human, specific, no spam patterns. Use company research hooks.
 {skills}"""},
-        {"role": "user", "content": f"""Strategy: {json.dumps(strategy)[:1500]}
+        {"role": "user", "content": f"""Template: {(template.get('whatsapp_body') or '')[:400]}
+Strategy: {json.dumps(strategy)[:1000]}
 Brief: {brief}
+Company research: {research_block}
 Contact: {contact.get('name')} @ {contact.get('company')}
 
 JSON: body, personalization_notes"""},
@@ -164,6 +196,51 @@ JSON: body, personalization_notes"""},
         draft = {"body": raw[:280], "personalization_notes": ""}
     draft["body"] = (draft.get("body") or "")[:300]
     return draft
+
+
+async def ai_edit_draft(
+    draft: dict,
+    instruction: str,
+    company_research: dict = None,
+    dossier: str = "",
+    brief: str = "",
+) -> dict:
+    """Rewrite draft subject/body per user instruction."""
+    instruction = (instruction or "").strip()
+    if not instruction:
+        return {"error": "instruction required"}
+
+    research = company_research or {}
+    channel = draft.get("channel") or "email"
+    messages = [
+        {"role": "system", "content": f"""You edit outreach copy for {config.my_name} at {config.company_name}.
+Apply the user's instruction precisely. Keep facts from research only — do not invent.
+Channel: {channel}. {'Max 300 chars for WhatsApp.' if channel == 'whatsapp' else 'Max 5 sentences for email.'}"""},
+        {"role": "user", "content": f"""Instruction: {instruction}
+
+Brief: {brief}
+
+Company research:
+{(research.get('narrative') or research.get('summary') or '')[:2500]}
+
+Campaign dossier excerpt:
+{(dossier or '')[:4000]}
+
+Current draft:
+Subject: {draft.get('subject') or ''}
+Body: {draft.get('body') or ''}
+
+JSON: {"subject, body, personalization_notes" if channel == "email" else "body, personalization_notes"}"""},
+    ]
+    raw = await complete(messages, task_type="outreach", max_tokens=400 if channel == "whatsapp" else 800)
+    clean = raw.strip().replace("```json", "").replace("```", "").strip()
+    try:
+        out = json.loads(clean)
+    except Exception:
+        out = {"body": clean[:300 if channel == "whatsapp" else 2000]}
+    if channel == "whatsapp":
+        out["body"] = (out.get("body") or "")[:300]
+    return out
 
 async def draft_linkedin_message(contact_name: str, company_name: str = "", context: str = "") -> str:
     """Draft a short LinkedIn connection request note (300 char limit)."""
