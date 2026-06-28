@@ -22,9 +22,19 @@ def dossier_abspath(world_slug: str, campaign_id: int) -> str:
     return os.path.join(_knowledge_root(), dossier_relpath(world_slug, campaign_id))
 
 
+def _world_slug(world_id: str) -> str:
+    """Resolve world slug; fall back to world_id if worlds DB unavailable."""
+    if not world_id:
+        return "unknown"
+    try:
+        w = worlds.get(world_id) or {}
+        return w.get("slug") or world_id
+    except Exception:
+        return world_id
+
+
 def read_dossier(world_id: str, campaign_id: int) -> str:
-    w = worlds.get(world_id) or {}
-    slug = w.get("slug") or world_id
+    slug = _world_slug(world_id)
     path = dossier_abspath(slug, campaign_id)
     if os.path.isfile(path):
         with open(path, encoding="utf-8") as f:
@@ -33,8 +43,7 @@ def read_dossier(world_id: str, campaign_id: int) -> str:
 
 
 def write_dossier(world_id: str, campaign_id: int, content: str) -> str:
-    w = worlds.get(world_id) or {}
-    slug = w.get("slug") or world_id
+    slug = _world_slug(world_id)
     path = dossier_abspath(slug, campaign_id)
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
@@ -83,8 +92,12 @@ def ingest_dossier_to_vault(world_id: str, campaign_id: int, content: str, title
     try:
         from memory import vault_documents
 
-        w = worlds.get(world_id) or {}
-        slug = w.get("slug") or world_id
+        slug = _world_slug(world_id)
+        w = {}
+        try:
+            w = worlds.get(world_id) or {}
+        except Exception:
+            pass
         tpl = w.get("template") or "startup"
         doc = vault_documents.create_document(
             world_id,
